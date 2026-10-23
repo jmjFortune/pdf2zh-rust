@@ -42,6 +42,17 @@ fn require(condition: bool, message: &str) -> WebResult<()> {
     }
 }
 struct WebError(anyhow::Error);
+struct UploadCleanup {
+    path: PathBuf,
+    keep: bool,
+}
+impl Drop for UploadCleanup {
+    fn drop(&mut self) {
+        if !self.keep {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+}
 impl<E: Into<anyhow::Error>> From<E> for WebError {
     fn from(e: E) -> Self {
         Self(e.into())
@@ -113,10 +124,10 @@ impl Store {
         Ok(jobs)
     }
     fn metadata(&self, job: &mut JobInfo) {
-        if let Ok(bytes) = std::fs::read(self.root.join(&job.id).join("completion.json")) {
-            if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                job.output_pages = value["output_pages"].as_u64().map(|v| v as usize);
-            }
+        if let Ok(bytes) = std::fs::read(self.root.join(&job.id).join("completion.json"))
+            && let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes)
+        {
+            job.output_pages = value["output_pages"].as_u64().map(|v| v as usize);
         }
     }
     fn status(&self, id: &str, status: &str, error: Option<&str>) -> Result<()> {
@@ -169,6 +180,10 @@ async fn upload(State(s): State<Shared>, mut form: Multipart) -> WebResult<Json<
     let id = uuid::Uuid::new_v4().to_string();
     let directory = s.root.join(&id);
     tokio::fs::create_dir(&directory).await?;
+    let mut cleanup = UploadCleanup {
+        path: directory.clone(),
+        keep: false,
+    };
     let mut filename = None;
     let mut options = UploadOptions::default();
     while let Some(mut field) = form.next_field().await? {
@@ -232,6 +247,7 @@ async fn upload(State(s): State<Shared>, mut form: Multipart) -> WebResult<Json<
         "INSERT INTO jobs(id,filename,status) VALUES(?1,?2,'queued')",
         params![id, filename],
     )?;
+    cleanup.keep = true;
     Ok(Json(s.get(&id)?))
 }
 
@@ -459,23 +475,31 @@ async fn execute(store: Shared, id: &str) -> Result<()> {
     // Credentials are only needed for the task. Keep input/output and public
     // progress in history; remove its private settings snapshot after completion.
     let _ = tokio::fs::remove_file(directory.join("job.json")).await;
+    if let Ok(mut entries) = tokio::fs::read_dir(&directory).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if entry.file_name().to_string_lossy().starts_with("analysis-") {
+                let _ = tokio::fs::remove_file(entry.path()).await;
+            }
+        }
+    }
     Ok(())
 }
 
 pub async fn worker(job: PathBuf) -> Result<()> {
+    crate::analysis::guard_parent()?;
     let config: JobConfig = serde_json::from_slice(&std::fs::read(job)?)?;
     #[cfg(unix)]
-    if let Ok(parent) = std::env::var("PDF2ZH_PARENT_PID") {
-        if let Ok(parent) = parent.parse::<u32>() {
-            tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    if unsafe { libc::getppid() } as u32 != parent {
-                        std::process::exit(130);
-                    }
+    if let Ok(parent) = std::env::var("PDF2ZH_PARENT_PID")
+        && let Ok(parent) = parent.parse::<u32>()
+    {
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                if unsafe { libc::getppid() } as u32 != parent {
+                    std::process::exit(130);
                 }
-            });
-        }
+            }
+        });
     }
     engine::run(&config, |event| {
         println!("{}", serde_json::to_string(&event).unwrap());

@@ -97,8 +97,17 @@ pub fn render_rgb(page: &PdfPage, scale: f32) -> Result<image::RgbImage> {
 }
 
 pub fn render(input: &Path, output: &Path, index: usize, dpi: f32) -> Result<()> {
+    ensure!(
+        dpi.is_finite() && dpi > 0. && dpi <= 288.,
+        "render DPI must be in (0, 288]"
+    );
     let doc = open(input, None)?;
     let page = doc.load_pdf_page(index.try_into()?)?;
+    let bounds = page.bounds()?;
+    ensure!(
+        bounds.width() * bounds.height() * (dpi / 72.).powi(2) <= 32_000_000.,
+        "page preview exceeds 32 megapixel limit"
+    );
     let pix = page.to_pixmap(
         &Matrix::new_scale(dpi / 72., dpi / 72.),
         &Colorspace::device_rgb(),
@@ -391,16 +400,15 @@ fn copy_dual_links(
                 index * 2 + side as i32
             };
             let mut page = result.load_pdf_page(target)?;
-            if !side_by_side || side == 0 {
-                if let Some(mut annotations) = page.object().get_dict("Annots")? {
-                    for i in (0..annotations.len()?).rev() {
-                        if let Some(a) = annotations.get_array(i as i32)? {
-                            if a.get_dict("Subtype")?
-                                .is_some_and(|s| s.as_name().is_ok_and(|v| v == b"Link"))
-                            {
-                                annotations.array_delete(i as i32)?;
-                            }
-                        }
+            if (!side_by_side || side == 0)
+                && let Some(mut annotations) = page.object().get_dict("Annots")?
+            {
+                for i in (0..annotations.len()?).rev() {
+                    if let Some(a) = annotations.get_array(i as i32)?
+                        && a.get_dict("Subtype")?
+                            .is_some_and(|s| s.as_name().is_ok_and(|v| v == b"Link"))
+                    {
+                        annotations.array_delete(i as i32)?;
                     }
                 }
             }

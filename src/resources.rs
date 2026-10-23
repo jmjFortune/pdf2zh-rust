@@ -5,12 +5,12 @@ pub fn cache() -> PathBuf {
     if let Some(p) = std::env::var_os("PDF2ZH_ASSETS") {
         return p.into();
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let assets = parent.join("assets");
-            if assets.join("fonts").is_dir() {
-                return assets;
-            }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        let assets = parent.join("assets");
+        if assets.join("fonts").is_dir() {
+            return assets;
         }
     }
     PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache/babeldoc")
@@ -45,12 +45,12 @@ pub fn runtime_path() -> Option<PathBuf> {
         "libonnxruntime.so"
     };
     let mut candidates = vec![PathBuf::from("assets").join(name)];
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("lib").join(name));
-            candidates.push(dir.join("assets").join(name));
-            candidates.push(dir.join("../../assets").join(name));
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        candidates.push(dir.join("lib").join(name));
+        candidates.push(dir.join("assets").join(name));
+        candidates.push(dir.join("../../assets").join(name));
     }
     candidates.into_iter().find(|p| p.is_file())
 }

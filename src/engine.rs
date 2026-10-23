@@ -1,11 +1,10 @@
 use crate::{
-    layout::LayoutModel,
     pdf, resources,
     translate::{TranslationSettings, Translator},
     types::{Bounds, Glyph, LayoutRegion, PageText},
     typeset::{self, Content, MathFragment},
 };
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
@@ -76,6 +75,7 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
     let mut doc = pdf::open(&config.input, config.password.as_deref())?;
     let original = pdf::open(&config.input, config.password.as_deref())?;
     let total = doc.page_count()? as usize;
+    ensure!(total > 0, "input PDF has no pages");
     let selected = page_selection(&config.pages, total)?;
     let font = resources::font_bytes()?;
     let mut translator = Translator::new(
@@ -85,10 +85,10 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
             .clone()
             .unwrap_or_else(|| config.data_dir.join("cache.sqlite3")),
     )?;
-    let mut model = if config.layout {
-        Some(LayoutModel::load(&resources::model_path())?)
+    let layouts = if config.layout {
+        crate::analysis::run_process(config, &mut emit).await?
     } else {
-        None
+        std::collections::BTreeMap::new()
     };
     let mut completed = 0usize;
     for index in 0..total {
@@ -97,7 +97,7 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
         }
         check_cancel(&config.data_dir)?;
         emit(Progress {
-            stage: "layout".into(),
+            stage: "extract".into(),
             page: index + 1,
             total,
             completed_blocks: completed,
@@ -110,11 +110,7 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
             page = doc.reload_page(index)?;
         }
         let info = pdf::page_text(&doc, index)?;
-        let regions = if let Some(model) = model.as_mut() {
-            model.predict(&pdf::render_rgb(&page, 1.)?, info.bounds)?
-        } else {
-            Vec::new()
-        };
+        let regions = layouts.get(&index).map(Vec::as_slice).unwrap_or(&[]);
         if info.blocks.is_empty() {
             // A blank page can pass through. An image-only page needs OCR and
             // must not be reported as successfully translated.
@@ -124,7 +120,7 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
                 index + 1
             );
         }
-        let units = translation_units(&info, &regions);
+        let units = translation_units(&info, regions);
         for unit in units {
             check_cancel(&config.data_dir)?;
             emit(Progress {
@@ -159,38 +155,32 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
                     )?);
                 }
                 pdf::remove_text(&mut page, &unit.glyphs)?;
-                let mut runs: Vec<(f32, f32, String)> = Vec::new();
-                let mut append = false;
+                let mut ordered: Vec<typeset::Placement> = Vec::new();
                 for item in &plan.items {
                     if let Content::Text(text) = &item.content {
-                        if append
-                            && runs
-                                .last()
-                                .is_some_and(|r| (r.1 - item.baseline).abs() < 0.01)
+                        if let Some(previous) = ordered.last_mut()
+                            && (previous.baseline - item.baseline).abs() < 0.01
+                            && let Content::Text(existing) = &mut previous.content
                         {
-                            runs.last_mut().unwrap().2.push_str(text);
-                        } else {
-                            runs.push((item.x, item.baseline, text.clone()));
+                            existing.push_str(text);
+                            continue;
                         }
-                        append = true;
-                    } else {
-                        append = false;
                     }
-                }
-                for (x, baseline, text) in runs {
-                    pdf::write_at(
-                        &mut doc,
-                        &mut page,
-                        mupdf::Point::new(x, baseline),
-                        &text,
-                        &font,
-                        plan.size,
-                        unit.color,
-                    )?;
+                    ordered.push(item.clone());
                 }
                 let scale = plan.size / unit.size;
-                for item in plan.items {
-                    if let Content::Math(i) = item.content {
+                for item in ordered {
+                    if let Content::Text(text) = item.content {
+                        pdf::write_at(
+                            &mut doc,
+                            &mut page,
+                            mupdf::Point::new(item.x, item.baseline),
+                            &text,
+                            &font,
+                            plan.size,
+                            unit.color,
+                        )?;
+                    } else if let Content::Math(i) = item.content {
                         let f = &unit.math[i];
                         let bottom = item.baseline + (f.bounds.height() - f.baseline) * scale;
                         pdf::draw_form(
@@ -447,11 +437,11 @@ fn math_ranges(glyphs: &[Glyph], regions: &[LayoutRegion]) -> Vec<(usize, usize)
         while end < glyphs.len() && extend_math(glyphs, end, 1, regions) {
             end += 1;
         }
-        if let Some(last) = ranges.last_mut() {
-            if start <= last.1 || glyphs[last.1..start].iter().all(|g| g.text.is_whitespace()) {
-                last.1 = last.1.max(end);
-                continue;
-            }
+        if let Some(last) = ranges.last_mut()
+            && (start <= last.1 || glyphs[last.1..start].iter().all(|g| g.text.is_whitespace()))
+        {
+            last.1 = last.1.max(end);
+            continue;
         }
         ranges.push((start, end));
     }

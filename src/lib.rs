@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod engine;
 pub mod layout;
 pub mod pdf;

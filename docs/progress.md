@@ -39,3 +39,12 @@
 - Added CLI page selection, layout, translation/cache, font fitting with explicit overflow error, atomic output validation, Web upload/history/cancel/SSE/download and process-per-task supervision.
 - Four current Rust tests passed before Web smoke testing. Web tests and memory measurements in progress.
 - Remaining significant scope: complex inline math anchored reflow, cross-page paragraph semantics, table text translation, OCR, remaining upstream providers/config compatibility, production packaging and NAS deployment. Development preview explicitly lists incomplete capabilities.
+
+## 2026-10-23 本机开发版验证
+
+- 本机独立项目完成 Rust 服务、按任务退出的翻译 worker、按阶段退出的原生模型 analyzer；应用不调用 Python。模型进程结束后才进入远程翻译，避免等待接口期间驻留约 1.3 GiB 的推理分配。
+- 原生 PDF 处理补齐整段公式标记重排、原公式字形保留、ActualText 精确中文 Unicode、阅读顺序、旋转/裁剪页面、链接/书签、压缩保存。字体子集化尚未实现。
+- 11 项测试通过；合成 PDF 与公开论文选页通过真实 Google 检查。OpenAI 路径使用明确标注的本地模拟协议测试，其他服务商不冒充实际验证；Bing 实测 401 已记录。
+- 独立 bundle 从 /private/tmp 启动，网页上传、并排译文、PNG 预览和浏览器下载均通过；入口 http://127.0.0.1:7861/。附带 Run.command，未设置自动启动。
+- 内存分阶段实测、截图路径及边界见 verification.md；模型瞬时峰值仍约 1.3 GiB，尚无 NAS 同环境对比。
+- 未完成：完整上游参数/服务商兼容、跨页段落、完整表格、OCR、多语言塑形、字体子集化及生产/NAS 打包。当前为开发版，不标记整个重写完成。

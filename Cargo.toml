@@ -16,7 +16,7 @@ libc = "0.2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 mupdf = { version = "=0.8.0", default-features = false, features = ["base14-fonts"] }
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-23"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "cookies"] }
 regex = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

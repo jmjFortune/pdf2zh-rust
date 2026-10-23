@@ -113,11 +113,11 @@ fn layout(
     let scale = size / original_size;
     let mut tokens = Vec::new();
     for c in content {
-        if let Content::Text(t) = c {
-            if text_width(font, t, size)? > bounds.width() {
-                tokens.extend(t.chars().map(|c| Content::Text(c.to_string())));
-                continue;
-            }
+        if let Content::Text(t) = c
+            && text_width(font, t, size)? > bounds.width()
+        {
+            tokens.extend(t.chars().map(|c| Content::Text(c.to_string())));
+            continue;
         }
         tokens.push(c.clone());
     }

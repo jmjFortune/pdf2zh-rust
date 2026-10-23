@@ -27,6 +27,11 @@ enum Command {
         #[arg(long)]
         job: PathBuf,
     },
+    #[command(hide = true)]
+    Analyze {
+        #[arg(long)]
+        request: PathBuf,
+    },
     Inspect {
         input: PathBuf,
         #[arg(long, default_value_t = 1)]
@@ -102,6 +107,7 @@ async fn main() -> Result<()> {
             pdf2zh_rust::service::serve(data_dir, listen).await?
         }
         Command::Worker { job } => pdf2zh_rust::service::worker(job).await?,
+        Command::Analyze { request } => pdf2zh_rust::analysis::analyze(&request)?,
         Command::Inspect { input, page } => {
             let doc = pdf::open(&input, None)?;
             let info = pdf::page_text(

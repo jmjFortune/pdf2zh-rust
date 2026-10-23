@@ -4,7 +4,7 @@ Independent rewrite of PDFMathTranslate-next/BabelDOC with Rust application code
 
 Implementation in progress. This is not yet a complete replacement for upstream. Development and tests run locally on Apple Silicon; NAS deployment follows validation.
 
-The resident HTTP service will start a separate Rust worker for each translation. PDF documents, page images and model sessions belong to the worker and are released when it exits.
+The resident HTTP service starts a separate Rust worker for each translation. The worker starts another short-lived Rust process for layout inference; that process exits before remote translation begins, releasing the model's allocations. The translation worker exits when its task finishes.
 
 ## Build
 
@@ -30,6 +30,8 @@ Fonts and the layout model are initially reused read-only from `~/.cache/babeldo
 mkdir -p dist/pdf2zh-rust
 ./target/release/pdf2zh-rust resources prepare --output dist/pdf2zh-rust/assets
 cp target/release/pdf2zh-rust LICENSE NOTICE dist/pdf2zh-rust/
+cp scripts/Run.command dist/pdf2zh-rust/
+chmod +x dist/pdf2zh-rust/Run.command
 ./dist/pdf2zh-rust/pdf2zh-rust serve --data-dir data
 ```
 
@@ -44,7 +46,7 @@ cp target/release/pdf2zh-rust LICENSE NOTICE dist/pdf2zh-rust/
 ./target/release/pdf2zh-rust translate input.pdf result.pdf --config settings.json
 ```
 
-Google is the default. OpenAI-compatible services, Ollama, DeepL, DeepLX, Bing, Azure Translator, Azure OpenAI, Dify and AnythingLLM have adapters. See [API and configuration](docs/api.md). Only Google has been tested live in this development session; the OpenAI-compatible path is covered by a local HTTP contract test. Other adapters need provider-specific live verification and do not imply complete upstream compatibility.
+Google is the default. OpenAI-compatible services, Ollama, DeepL, DeepLX, Bing, Azure Translator, Azure OpenAI, Dify and AnythingLLM have adapters. See [API and configuration](docs/api.md). Google passed live checks; the OpenAI-compatible path is covered by a local HTTP contract test. Bing returned HTTP 401 in live checks and is not offered in the Web selector. Other adapters need provider-specific live verification and do not imply complete upstream compatibility.
 
 ## Verification and current boundary
 
@@ -52,7 +54,7 @@ Google is the default. OpenAI-compatible services, Ollama, DeepL, DeepLX, Bing, 
 cargo test --locked -j 2
 ```
 
-Tests include exact searchable Chinese Unicode, source-text removal, protected formula/vector pixels, formula relocation without hidden duplicate paragraphs, all four rotations with crop boxes, links/outlines in dual output, page validation, formula-marker validation, streaming preview, real worker processes, queued/blocked cancellation, and restart recovery. PDF tests require the prepared font.
+Tests include exact searchable Chinese Unicode, source-text removal, protected formula/vector pixels, formula relocation without hidden duplicate paragraphs, all four rotations with crop boxes, links/outlines in dual output, page validation, formula-marker validation, streaming preview, real worker and model-analysis processes, queued/blocked cancellation, and restart recovery. PDF tests require the prepared font and model.
 
 Live checks used synthetic PDFs and selected pages of the public paper *Attention Is All You Need*. The inline-formula path translates whole paragraphs with validated markers, then places original formula glyphs through clipped native PDF forms. It is not a guarantee of quality on every PDF. Current gaps include full upstream option/provider parity, cross-page paragraph semantics, complete table-text translation, OCR and broad language/font-shaping coverage. NAS deployment has not been performed.
 

@@ -74,6 +74,7 @@ impl Translator {
         let cache = Connection::open(cache)?;
         cache.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, value TEXT NOT NULL, accessed INTEGER NOT NULL DEFAULT (unixepoch()));")?;
         let client = reqwest::Client::builder()
+            .cookie_store(true)
             .timeout(Duration::from_secs(90))
             .connect_timeout(Duration::from_secs(15))
             .build()?;
@@ -116,11 +117,12 @@ impl Translator {
         }
         let mut output = None;
         for attempt in 0..3 {
-            let interval = Duration::from_secs_f64(1. / self.settings.requests_per_second);
-            if let Some(last) = self.last_request {
-                if let Some(wait) = interval.checked_sub(last.elapsed()) {
-                    tokio::time::sleep(wait).await;
-                }
+            let interval = Duration::try_from_secs_f64(1. / self.settings.requests_per_second)
+                .context("configured request interval is too large")?;
+            if let Some(last) = self.last_request
+                && let Some(wait) = interval.checked_sub(last.elapsed())
+            {
+                tokio::time::sleep(wait).await;
             }
             self.last_request = Some(std::time::Instant::now());
             match self.request(&text).await {
@@ -362,10 +364,10 @@ fn chunks(text: &str, max_chars: usize) -> Vec<&str> {
     let mut remaining = text;
     while remaining.chars().count() > max_chars {
         let mut end = remaining.char_indices().nth(max_chars).unwrap().0;
-        if let Some(mark) = remaining[..end].rfind('⟦') {
-            if !remaining[mark..end].contains('⟧') {
-                end = mark;
-            }
+        if let Some(mark) = remaining[..end].rfind('⟦')
+            && !remaining[mark..end].contains('⟧')
+        {
+            end = mark;
         }
         if end == 0 {
             end = remaining.char_indices().nth(max_chars).unwrap().0;

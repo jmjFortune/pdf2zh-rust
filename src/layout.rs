@@ -19,6 +19,10 @@ impl LayoutModel {
         };
         let environment = builder.with_telemetry(false).build()?;
         let session = Session::builder(&environment)?
+            // Release page-operation scratch allocations while the document
+            // worker waits for remote translation responses.
+            .with_execution_providers([ort::ep::CPU::default().with_arena_allocator(false).build()])
+            .map_err(|e| anyhow::anyhow!("{e}"))?
             .with_intra_threads(2)
             .map_err(|e| anyhow::anyhow!("{e}"))?
             .with_inter_threads(1)
