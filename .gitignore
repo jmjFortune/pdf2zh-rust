@@ -9,3 +9,7 @@
 *.dylib
 *.so
 *.so.*
+
+/web/node_modules/
+/web/.next/
+/web/out/

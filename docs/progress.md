@@ -66,3 +66,6 @@
 ## 2026-10-23 font recovery in progress
 - Real task failed at page 32/47, 510 translated blocks, missing primary-font U+2023. NAS cache snapshot contains 512 rows and two translated values with U+2023; backup saved before changes.
 - Scoped repair: select a validated mature fallback font only for paragraphs unsupported by the primary font; same bytes used for measurement and output, preserve exact Unicode. Add cache-only recovery path to prevent re-requesting cached content. Verify missing-glyph rich-formula regression, then cloud build/deploy. Recover prior pages using a private local copy of the user's NAS input/cache and existing local model; do not transmit the PDF to any new service or put data in Git.
+
+## 2026-10-23 — translator UI integration
+Copied the existing frontend without changing original project code. Added a separate Rust adapter rather than redirecting it to a Python backend. Local static build and browser upload/refresh/library/reader/download checked. New native integration test validates private saved keys, public metadata, SSE reconnect sequencing, three exports and cache reuse after retained-input retry. Existing fourteen native tests also passed; final suite rerun and cloud/NAS publication are in progress. Preserve original user task and its 512-row cache.

@@ -9,7 +9,10 @@
 !tests/
 !tests/**
 !web/
-!web/index.html
+!web/**
+web/node_modules
+web/.next
+web/out
 !assets/
 !assets/manifest.json
 !scripts/

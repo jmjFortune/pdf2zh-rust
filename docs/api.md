@@ -81,3 +81,45 @@ explicit error instead of silently dropping text or changing Unicode.
 rejects a missing cache entry before any provider request. It does not change
 cache keys, providers, or translate missing content. Use it for offline recovery;
 do not set it globally on a service intended to translate new content.
+
+## Translator frontend adapter (`/api/ui`)
+
+The static Next.js export is served by Rust. Node is used only during build;
+there is no Node/Python web server in the image. The original `/api/jobs` API
+remains available with its existing status names and named SSE events.
+
+- `GET /health`, `GET/PUT /settings`: defaults and supported provider profiles.
+  Keys may be supplied explicitly by `PUT`; responses contain `has_key` only.
+  Omitted keys are retained, an explicit empty key removes the saved key.
+  Settings/glossary are atomically saved to private `ui-settings.json` (0600).
+- `GET /glossary`, `POST/DELETE /glossary/terms`: `{term, zh}` or `?term=...`.
+- `GET/POST /jobs`, `GET /jobs/active`, `GET /jobs/{id}`: frontend job shape,
+  with `queued/running/done/error/cancelled`, `progress.current/total`, actual
+  `stage`, `options`, `files`, filename/size/pages/UTC timestamps.
+- `POST /jobs/{id}/retry` reuses the retained input in a new task. Upload and
+  retry accept multipart fields `service`, `lang_in/out`, `page_range`,
+  `output_formats` (comma-separated mono/dual/side_by_side); upload also needs
+  `file`. Credentials come from explicitly saved settings; terminal history
+  keeps only allowlisted public metadata in `settings.json`. No old key is
+  recovered from a failed job. Legacy records whose settings were discarded
+  expose `options: null`; the UI explicitly asks the user to choose settings.
+- `POST /jobs/{id}/cancel`, `GET /jobs/{id}/events`: unnamed SSE JSON includes
+  monotonically increasing `seq`, actual stage, whole current job and terminal
+  type. Reconnecting receives a current snapshot, never starts another job.
+- `GET /jobs/{id}/download/{original|mono|dual|side_by_side}`: streamed PDF,
+  attachment by default; `?inline=true` supports embedded readers.
+- `GET /papers`, `GET /papers/{id}`, `GET /papers/{id}/content`: all retained
+  task statuses, metadata, and `has_content:false` for the existing PDF reader
+  fallback. `DELETE /papers/{id}` hides a stopped task from the library; PDF
+  files/cache are retained. Clear its ID from private settings `hidden` to restore.
+
+Multiple selected formats share one translation pass, then export separately.
+All original pages remain in each export; `first3` translates at most three
+pages, safely including a shorter PDF. Interleaved files have twice the original
+page count. Original page numbering is retained in the PDF reader. Page-based
+progress is completed source pages, with the current page/block count shown in
+the message; it is not a percentage of elapsed time or paragraphs.
+
+This adapter does not implement the Python backend's Zotero connector endpoints,
+OCR, or structured paragraph/formula reader API. The About page identifies those
+limits. No existing translator credential file is imported automatically.

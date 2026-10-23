@@ -17,12 +17,14 @@ cargo build -j 2
 ## Run locally
 
 ```sh
+npm --prefix web ci
+PDF2ZH_STATIC_EXPORT=1 npm --prefix web run build
 cargo build --release --locked -j 2
 ./target/release/pdf2zh-rust resources status
 ./target/release/pdf2zh-rust serve --listen 127.0.0.1:7861 --data-dir data
 ```
 
-Open http://127.0.0.1:7861/. No Python process is started. Uploaded PDFs, task state and the bounded translation cache live in `data/`, which is ignored by Git. A task's private settings snapshot is mode 0600 and is deleted after completion or cancellation.
+Open http://127.0.0.1:7861/. The existing translator frontend is compiled to static files and served by Rust; Node is only a build dependency. No Python process is started. Uploaded PDFs, task state and the bounded translation cache live in `data/`, which is ignored by Git. A task's credentials/password snapshot is mode 0600 and is deleted after completion or cancellation. The translator frontend's explicitly saved provider keys remain in private `ui-settings.json`; reads return only whether a key exists. Public task metadata preserves the selected settings without credentials.
 
 Fonts and the layout model are initially reused read-only from `~/.cache/babeldoc`. `PDF2ZH_ASSETS` can select a different resource directory and `PDF2ZH_FONT` can override the font. Prepare a standalone folder explicitly:
 
@@ -31,6 +33,7 @@ mkdir -p dist/pdf2zh-rust
 ./target/release/pdf2zh-rust resources prepare --output dist/pdf2zh-rust/assets
 cp target/release/pdf2zh-rust LICENSE NOTICE dist/pdf2zh-rust/
 cp scripts/Run.command dist/pdf2zh-rust/
+cp -R web/out dist/pdf2zh-rust/web
 chmod +x dist/pdf2zh-rust/Run.command
 ./dist/pdf2zh-rust/pdf2zh-rust serve --data-dir data
 ```

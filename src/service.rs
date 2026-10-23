@@ -1,3 +1,4 @@
+mod ui;
 use crate::engine::{self, JobConfig, OutputFormat, Progress};
 use crate::translate::TranslationSettings;
 use anyhow::{Context, Result};
@@ -7,7 +8,7 @@ use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, State},
     http::{StatusCode, header},
     response::{
-        Html, IntoResponse, Response,
+        IntoResponse, Response,
         sse::{Event, KeepAlive, Sse},
     },
     routing::{get, post},
@@ -31,6 +32,8 @@ struct Store {
     db: Mutex<Connection>,
     root: PathBuf,
     previews: tokio::sync::Semaphore,
+    preferences: Mutex<ui::Preferences>,
+    web_root: PathBuf,
 }
 type Shared = Arc<Store>;
 type WebResult<T> = std::result::Result<T, WebError>;
@@ -62,7 +65,7 @@ impl IntoResponse for WebError {
     fn into_response(self) -> Response {
         (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error":self.0.to_string()})),
+            Json(serde_json::json!({"error":self.0.to_string(),"detail":self.0.to_string()})),
         )
             .into_response()
     }
@@ -85,6 +88,7 @@ struct UploadOptions {
     translation: TranslationSettings,
     pages: String,
     format: Option<OutputFormat>,
+    additional_formats: Vec<OutputFormat>,
     layout: Option<bool>,
     password: Option<String>,
 }
@@ -146,11 +150,22 @@ pub async fn serve(root: PathBuf, listen: String) -> Result<()> {
     db.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,filename TEXT NOT NULL,status TEXT NOT NULL,created INTEGER NOT NULL DEFAULT(unixepoch()),progress TEXT,error TEXT); UPDATE jobs SET status='interrupted',error='Service restarted during translation' WHERE status IN ('running','cancelling');")?;
     let store = Arc::new(Store {
         db: Mutex::new(db),
+        preferences: Mutex::new(ui::Preferences::load(&root)?),
+        web_root: std::env::var_os("PDF2ZH_WEB_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                let adjacent = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|p| p.join("web")));
+                adjacent
+                    .filter(|p| p.join("index.html").is_file())
+                    .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web/out"))
+            }),
         root,
         previews: tokio::sync::Semaphore::new(1),
     });
     let scheduler = tokio::spawn(schedule(store.clone()));
-    let app=Router::new().route("/",get(||async {Html(include_str!("../web/index.html"))}))
+    let app=Router::new().nest("/api/ui", ui::routes()).fallback(ui::static_file)
         .route("/api/health",get(||async {Json(serde_json::json!({"status":"ok","engine":"rust","version":env!("CARGO_PKG_VERSION")}))}))
         .route("/api/jobs",get(list).post(upload)).route("/api/jobs/{id}",get(detail))
         .route("/api/jobs/{id}/cancel",post(cancel)).route("/api/jobs/{id}/events",get(events))
@@ -266,10 +281,12 @@ fn enqueue(s: &Store, id: &str, filename: &str, options: UploadOptions) -> Resul
         translation: options.translation,
         pages: options.pages,
         format: options.format.unwrap_or(OutputFormat::Mono),
+        additional_formats: options.additional_formats,
         layout: options.layout.unwrap_or(true),
         password: options.password,
         ..Default::default()
     };
+    ui::save_snapshot(&directory, &config)?;
     let path = directory.join("job.json");
     let mut options = std::fs::OpenOptions::new();
     options.create_new(true).write(true);
@@ -493,7 +510,14 @@ async fn execute(store: Shared, id: &str) -> Result<()> {
     reader.await??;
     let error = errors.await??;
     if directory.join("cancel").exists() {
-        for name in ["output.pdf", "completion.json", "preview-1.png"] {
+        for name in [
+            "output.pdf",
+            "output-mono.pdf",
+            "output-dual.pdf",
+            "output-side_by_side.pdf",
+            "completion.json",
+            "preview-1.png",
+        ] {
             let _ = tokio::fs::remove_file(directory.join(name)).await;
         }
         store.status(id, "cancelled", None)?;

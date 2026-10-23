@@ -1,3 +1,11 @@
+FROM node:22-bookworm-slim AS frontend
+WORKDIR /frontend
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/ ./
+ENV PDF2ZH_STATIC_EXPORT=1 NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
 # syntax=docker/dockerfile:1
 FROM debian:bookworm-slim AS resources
 ARG TARGETARCH
@@ -34,6 +42,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /build/target/release/pdf2zh-rust /usr/local/bin/pdf2zh-rust
 COPY --from=resources /bundle/assets /opt/pdf2zh/assets
 COPY LICENSE NOTICE /opt/pdf2zh/
+COPY --from=frontend /frontend/out /opt/pdf2zh/web
+ENV PDF2ZH_WEB_DIR=/opt/pdf2zh/web
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.title="pdf2zh-rust development preview" \
     org.opencontainers.image.source="https://github.com/jmjFortune/pdf2zh-rust" \
@@ -58,6 +68,8 @@ COPY --from=resources /bundle/assets/fonts/GoNotoKurrent-Regular.ttf /opt/pdf2zh
 COPY --from=resources /bundle/assets/licenses/GoNotoKurrent-OFL.txt /opt/pdf2zh/assets/licenses/
 COPY assets/manifest.json /opt/pdf2zh/assets/manifest.json
 COPY LICENSE NOTICE /opt/pdf2zh/
+COPY --from=frontend /frontend/out /opt/pdf2zh/web
+ENV PDF2ZH_WEB_DIR=/opt/pdf2zh/web
 COPY --from=builder /build/target/release/pdf2zh-rust /usr/local/bin/pdf2zh-rust
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.revision="$VCS_REF"

@@ -22,6 +22,7 @@ pub struct JobConfig {
     pub min_font_size: f32,
     pub password: Option<String>,
     pub format: OutputFormat,
+    pub additional_formats: Vec<OutputFormat>,
     pub data_dir: PathBuf,
     pub cache_path: Option<PathBuf>,
 }
@@ -36,6 +37,7 @@ impl Default for JobConfig {
             min_font_size: 6.,
             password: None,
             format: OutputFormat::Mono,
+            additional_formats: Vec::new(),
             data_dir: "data".into(),
             cache_path: None,
         }
@@ -47,6 +49,16 @@ pub enum OutputFormat {
     Mono,
     Interleaved,
     SideBySide,
+}
+
+impl OutputFormat {
+    pub fn ui_name(self) -> &'static str {
+        match self {
+            Self::Mono => "mono",
+            Self::Interleaved => "dual",
+            Self::SideBySide => "side_by_side",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -259,40 +271,60 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
         completed_blocks: completed,
         message: String::new(),
     });
-    let parent = config
-        .output
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    std::fs::create_dir_all(parent)?;
-    let tmp = parent.join(format!(".{}.partial.pdf", uuid::Uuid::new_v4()));
-    let save_result = (|| -> Result<()> {
-        match config.format {
-            OutputFormat::Mono => pdf::save(&doc, &tmp)?,
-            _ => pdf::dual_output(
-                &config.input,
-                config.password.as_deref(),
-                &doc,
-                &tmp,
-                config.format == OutputFormat::SideBySide,
-            )?,
+    // One translation pass feeds all requested exports; retries reuse the same cache.
+    let mut outputs = vec![(config.format, config.output.clone())];
+    for format in &config.additional_formats {
+        if !outputs.iter().any(|(existing, _)| existing == format) {
+            outputs.push((
+                *format,
+                config
+                    .data_dir
+                    .join(format!("output-{}.pdf", format.ui_name())),
+            ));
         }
-        let check = pdf::open(&tmp, None)?;
-        let expected = if config.format == OutputFormat::Interleaved {
-            total * 2
-        } else {
-            total
-        };
-        ensure!(
-            check.page_count()? as usize == expected,
-            "output page count mismatch"
-        );
-        drop(check);
-        std::fs::rename(&tmp, &config.output)?;
+    }
+    let mut staged = Vec::new();
+    let save_result = (|| -> Result<()> {
+        for (format, path) in &outputs {
+            check_cancel(&config.data_dir)?;
+            ensure!(!path.exists(), "output already exists: {}", path.display());
+            let parent = path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            std::fs::create_dir_all(parent)?;
+            let tmp = parent.join(format!(".{}.partial.pdf", uuid::Uuid::new_v4()));
+            staged.push((tmp.clone(), path.clone()));
+            match format {
+                OutputFormat::Mono => pdf::save(&doc, &tmp)?,
+                _ => pdf::dual_output(
+                    &config.input,
+                    config.password.as_deref(),
+                    &doc,
+                    &tmp,
+                    *format == OutputFormat::SideBySide,
+                )?,
+            }
+            let check = pdf::open(&tmp, None)?;
+            let expected = if *format == OutputFormat::Interleaved {
+                total * 2
+            } else {
+                total
+            };
+            ensure!(
+                check.page_count()? as usize == expected,
+                "output page count mismatch"
+            );
+        }
+        for (tmp, path) in &staged {
+            std::fs::rename(tmp, path)?;
+        }
         Ok(())
     })();
     if save_result.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        for (tmp, _) in &staged {
+            let _ = std::fs::remove_file(tmp);
+        }
     }
     save_result?;
     emit(Progress {
@@ -517,7 +549,10 @@ fn formula_line(s: &str) -> bool {
 }
 
 pub fn page_selection(spec: &str, total: usize) -> Result<BTreeSet<usize>> {
-    if spec.trim().is_empty() {
+    if spec.trim() == "first3" {
+        return Ok((0..total.min(3)).collect());
+    }
+    if spec.trim().is_empty() || spec.trim() == "all" {
         return Ok((0..total).collect());
     }
     let mut pages = BTreeSet::new();
