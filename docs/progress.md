@@ -69,3 +69,5 @@
 
 ## 2026-10-23 — translator UI integration
 Copied the existing frontend without changing original project code. Added a separate Rust adapter rather than redirecting it to a Python backend. Local static build and browser upload/refresh/library/reader/download checked. New native integration test validates private saved keys, public metadata, SSE reconnect sequencing, three exports and cache reuse after retained-input retry. Existing fourteen native tests also passed; final suite rerun and cloud/NAS publication are in progress. Preserve original user task and its 512-row cache.
+
+Final UI deployment verified: cloud run 39951931277 succeeded; NAS source de39b82 is healthy with the same named volume and all eight retained task records. Original cache-only page-32 regression passed 13 blocks, then stopped on missing cache as designed. User confirmed manual Library clearing; do not restore hidden records. See verification.md for the in-app PDF viewer limitation and idle memory samples.
