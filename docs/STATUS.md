@@ -78,3 +78,10 @@
 - 验证：本机 17 项测试和静态生产构建通过；新增本地 HTTP 协议矩阵检查 19 个非 Google 配置的路由/请求/独立密钥，Google 沿用先前实测。浏览器确认 20 个入口、无 About、旧 About 链接回退及 Azure 参数字段。
 - 没做完 / 已知问题：云端发布、NAS 最终部署待本条后的验收；未调用用户付费账户逐家实测。原有 PDF、缓存、密钥、文库隐藏状态保持。
 - 下一个接手的人先看：provider-ui-plan.md、api.md 最新说明。API 的 side_by_side/dual 旧标识不互换，产品名分别是 Dual/Interleaved。
+
+## 2026-10-23 Codex（服务与 Dual 命名已部署）
+- 做了什么：云端构建 adc81bf 成功并部署到 NAS；About 页面与专属下载已移除，所有可见 Side by Side 改为 Dual，Interleaved 仍表示交替页；新增服务配置入口已上线，共 20 个。
+- 改了哪些文件：本次验收仅更新 STATUS、verification、progress 和 provider-ui-plan；源码提交 adc81bf。
+- 验证：Actions 39955888217 的 17 项 Linux 测试及最终容器检查通过；NAS healthy，8 条任务/全部输入哈希保留，设置文件 SHA256 不变，用户清空后的文库仍为空。浏览器确认 20 个按钮、无 About、Dual 标签；本机实点 Export Dual 的 PDF 宽度为原稿两倍，Azure region 保存/刷新及非法参数拒绝检查通过。
+- 没做完 / 已知问题：新增付费服务没有逐家实账户调用；模型/密钥需要用户按账户配置。原 47 页文档没有因此完成，内置浏览器 PDF 显示限制未改。
+- 下一个接手的人先看：verification.md 本次验收与 api.md。部署 digest ac1a3f3fa8641811c3a07f5be28007d6eb8582d1a503fd5587a9787af95c8de7；内部旧格式标识保持兼容，勿互换持久化文件含义。
