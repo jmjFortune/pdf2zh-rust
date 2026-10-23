@@ -1,0 +1,16 @@
+**
+!Dockerfile
+!Cargo.toml
+!Cargo.lock
+!LICENSE
+!NOTICE
+!src/
+!src/**
+!tests/
+!tests/**
+!web/
+!web/index.html
+!assets/
+!assets/manifest.json
+!scripts/
+!scripts/fetch-container-assets.sh

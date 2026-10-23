@@ -14,6 +14,31 @@
       "url": "https://huggingface.co/wybxc/DocLayout-YOLO-DocStructBench-onnx/resolve/main/doclayout_yolo_docstructbench_imgsz1024.onnx?download=true"
     }
   ],
+  "native_runtime": {
+    "version": "1.31.0",
+    "archives": {
+      "amd64": {
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-linux-x64-1.31.0.tgz",
+        "sha256": "cc5c72baf5ae5c8238a6841f0897227be2d02826b9cf98eaf02fdefaeeb03a57"
+      },
+      "arm64": {
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-linux-aarch64-1.31.0.tgz",
+        "sha256": "c5b8b3cca31f3d643a3b313b8f42e2d0f16a4fcefd02cda343d97bd5306afaab"
+      }
+    }
+  },
+  "licenses": [
+    {
+      "name": "source-han-serif-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/adobe-fonts/source-han-serif/2d2157829da2f4b515b882ac88062b1dfd8b26e6/LICENSE.txt",
+      "sha256": "9ff5bb567e1b92c801fc1069e5fbf992ff8efccacb9db94e5959a5b3ba9bb903"
+    },
+    {
+      "name": "DocLayout-YOLO-LICENSE",
+      "url": "https://raw.githubusercontent.com/opendatalab/DocLayout-YOLO/fd3f15cff5c3d46ce465f0d2c480b2ebf329637c/LICENSE",
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
+    }
+  ],
   "onnx_runtime_api_minimum": 23,
   "provenance": "Model/font SHA3-256 values from BabelDOC 0.6.2 embedding_assets_metadata.py"
 }

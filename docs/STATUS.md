@@ -13,3 +13,11 @@
 - 验证：源码未变，沿用前次 11 项测试与 release 验证；推送前工作区和 diff 检查通过，受跟踪文件凭证模式扫描未发现匹配。推送结果以远端分支 SHA 与本地 HEAD 比较为准。
 - 没做完 / 已知问题：本次仅推送源码；Docker/CI/镜像仓库和 NAS 部署尚未实施，开发版既有边界保持。
 - 下一个接手的人先看：README.md、verification.md；后续构建部署建议采用 Compose、Buildx 缓存和 GitHub Actions 镜像流水线。
+
+## 2026-10-23 Codex（公开仓库与 Docker 构建）
+
+- 做了什么：用户明确选择 pdf2zh-rust 并授权公开后，已确认仓库 PUBLIC；接入标准 Ubuntu 24.04/amd64 的 Docker 构建、Cargo Chef/Buildx 缓存和通过测试后发布 GHCR 的流程。
+- 改了哪些文件：Dockerfile、.dockerignore、compose.yaml、.github/workflows/docker.yml、scripts/fetch-container-assets.sh、assets/manifest.json、README 与 Docker 计划/说明及本记录。镜像内携带固定哈希的原生推理库、模型、字体及许可证。
+- 验证：本机 actionlint 1.7.12、shell 语法、Compose 配置、JSON 和 git diff 检查均通过，当前 11 项 Rust 测试通过。云端构建证据随后写入 verification.md；尚未把编写配置视作构建通过。
+- 没做完 / 已知问题：首轮 Linux 镜像构建和 GHCR 可拉取性待云端验证；NAS 未部署。上游完整功能覆盖仍待完成，当前为开发版。
+- 下一个接手的人先看：docker-build-plan.md、docker.md 和 Actions 的 Docker image 日志；构建自动触发范围限定源码和构建相关路径，无定时任务、付费 runner 或 NAS 自动部署。

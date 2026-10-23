@@ -1,0 +1,14 @@
+name: pdf2zh-rust
+services:
+  pdf2zh-rust:
+    image: ${PDF2ZH_IMAGE:-ghcr.io/jmjfortune/pdf2zh-rust:dev}
+    platform: linux/amd64
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${PDF2ZH_BIND_ADDRESS:-127.0.0.1}:${PDF2ZH_PORT:-7861}:7861"
+    volumes:
+      - pdf2zh-data:/data
+    stop_grace_period: 10s
+volumes:
+  pdf2zh-data:

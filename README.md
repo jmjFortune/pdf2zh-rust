@@ -37,6 +37,15 @@ chmod +x dist/pdf2zh-rust/Run.command
 
 `resources prepare` checks the font and model against pinned SHA3-256 values. It copies existing valid resources and the native runtime; it does not download unless `--download` is explicitly supplied. The bundled executable discovers adjacent assets, so the original Python installation is unnecessary. The native runtime must be supplied for the target OS/architecture.
 
+## Docker cloud builds
+
+The **Docker image** GitHub Actions workflow builds and tests `linux/amd64` on a
+standard public-repository Ubuntu runner, then publishes the checked image to
+GHCR. Cargo Chef and Buildx cache dependencies; the Mac does not build/download
+Docker images. See [Docker instructions](docs/docker.md) for image tags, Compose,
+resource verification and persistent data. First-run cloud status is recorded in
+the verification log; adding the workflow alone does not mean a build passed.
+
 ## CLI
 
 ```sh

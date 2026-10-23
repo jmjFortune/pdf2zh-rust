@@ -1,0 +1,95 @@
+name: Docker image
+
+on:
+  push:
+    branches: [agent/codex/rust-engine]
+    paths:
+      - .github/workflows/docker.yml
+      - Dockerfile
+      - .dockerignore
+      - Cargo.toml
+      - Cargo.lock
+      - src/**
+      - tests/**
+      - web/index.html
+      - assets/manifest.json
+      - scripts/fetch-container-assets.sh
+      - LICENSE
+      - NOTICE
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: 'false'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Build and run Linux test suite
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: pdf2zh-rust:ci
+          build-args: VCS_REF=${{ github.sha }}
+          cache-from: type=gha,scope=pdf2zh-rust-amd64
+          cache-to: type=gha,mode=max,scope=pdf2zh-rust-amd64
+      - name: Smoke-test final container
+        env:
+          SMOKE_DIR: ${{ runner.temp }}/pdf2zh-smoke
+        run: |
+          set -euo pipefail
+          mkdir -p "$SMOKE_DIR"
+          docker run --rm pdf2zh-rust:ci resources status > "$SMOKE_DIR/resources.json"
+          jq -e '.python_runtime_required == false and (.native_runtime != null) and all(.assets[]; .valid)' "$SMOKE_DIR/resources.json"
+          docker run --rm --user "$(id -u):$(id -g)" -v "$SMOKE_DIR:/smoke" pdf2zh-rust:ci fixture /smoke/input.pdf
+          docker run --rm --user "$(id -u):$(id -g)" -v "$SMOKE_DIR:/smoke" pdf2zh-rust:ci layout /smoke/input.pdf > "$SMOKE_DIR/layout.json"
+          jq -e 'type == "array" and length > 0' "$SMOKE_DIR/layout.json"
+          docker run -d --name pdf2zh-smoke -p 127.0.0.1:17861:7861 pdf2zh-rust:ci
+          trap 'docker logs pdf2zh-smoke; docker rm -fv pdf2zh-smoke' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:17861/api/health > "$SMOKE_DIR/health.json"; then
+              break
+            fi
+            sleep 1
+          done
+          jq -e '.status == "ok" and .engine == "rust"' "$SMOKE_DIR/health.json"
+          curl --fail --silent http://127.0.0.1:17861/ | grep -q 'PDF 翻译'
+          test "$(docker exec pdf2zh-smoke id -u)" = 10001
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish verified image
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          immutable="$image:sha-${GITHUB_SHA:0:12}"
+          docker tag pdf2zh-rust:ci "$immutable"
+          docker push "$immutable"
+          if [ "$GITHUB_REF" = "refs/heads/agent/codex/rust-engine" ]; then
+            docker tag pdf2zh-rust:ci "$image:dev"
+            docker push "$image:dev"
+          fi
+          printf '### Published image\n`%s`\n' "$immutable" >> "$GITHUB_STEP_SUMMARY"
