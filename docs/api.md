@@ -118,7 +118,9 @@ All original pages remain in each export; `first3` translates at most three
 pages, safely including a shorter PDF. Interleaved files have twice the original
 page count. Original page numbering is retained in the PDF reader. Page-based
 progress is completed source pages, with the current page/block count shown in
-the message; it is not a percentage of elapsed time or paragraphs.
+the message; it is not a percentage of elapsed time or paragraphs. During layout
+analysis the UI uses an indeterminate bar and the label `Analyzing`; an analyzer
+page number must never be presented as completed translation percentage.
 
 This adapter does not implement the Python backend's Zotero connector endpoints,
 OCR, or structured paragraph/formula reader API. The About page identifies those

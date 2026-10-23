@@ -33,6 +33,7 @@ export default function TranslateView({ settings, settingsError, onRetry, onOpen
   const isTranslating = uploading || Boolean(job && !terminal(job.status));
   const isCompleted = job?.status === "done";
   const progress = job?.progress?.total ? Math.min(100, Math.max(0, Math.round(job.progress.current / job.progress.total * 100))) : 0;
+  const analyzing = job?.stage === "layout";
   const currentStep = isCompleted ? 4 : ({ analyze: 0, layout: 0, extract: 1, translate: 2, save: 3 }[job?.stage] ?? 0);
   const steps = ["Layout Analysis", "Text Extraction", "Translation", "PDF Export", "Complete"];
 
@@ -404,13 +405,18 @@ export default function TranslateView({ settings, settingsError, onRetry, onOpen
             <span className="font-medium text-[#1F1E1D]">
               {isCompleted ? "Translation Complete" : job?.status === "cancelled" ? "Translation Cancelled" : job?.status === "error" ? "Translation Failed" : "Translating Paper"}
             </span>
-            <span className="font-mono text-[#D97757] font-semibold">{progress}%</span>
+            <span className="font-mono text-[#D97757] font-semibold">{analyzing ? "Analyzing" : `${progress}%`}</span>
           </div>
 
           <div className="w-full bg-[#EAE5D9] h-1.5 rounded-full overflow-hidden">
             <div
-              className="bg-[#D97757] h-full transition-all duration-300 rounded-full"
-              style={{ width: `${progress}%` }}
+              className={`bg-[#D97757] h-full transition-all duration-300 rounded-full ${analyzing ? "animate-pulse" : ""}`}
+              role="progressbar"
+              aria-label={analyzing ? "Layout analysis in progress" : "Translated pages"}
+              aria-valuenow={analyzing ? undefined : progress}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              style={{ width: analyzing ? "33%" : `${progress}%` }}
             />
           </div>
 
