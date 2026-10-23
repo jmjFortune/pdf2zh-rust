@@ -27,6 +27,11 @@ Image/package visibility is separate from repository visibility. Check the GHCR
 package's access settings after first publication. A private package requires
 registry authentication on the NAS; a public package supports anonymous pulls.
 
+First-run verification on 2026-10-23 passed: run 39885551001 published
+`sha-8c5dbb4b2d68` and `dev`, and the registry accepted anonymous manifest access.
+The 11-test Linux suite and final-container smoke checks passed. Exact revision
+and digest are recorded in `verification.md`; NAS deployment remains pending.
+
 ## Run on a Linux amd64 machine
 
 Place `compose.yaml` in its own directory, then run:

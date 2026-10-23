@@ -36,8 +36,8 @@ only claims amd64 coverage.
 1. Confirm public visibility and current source checkpoint — complete.
 2. Add pinned resource downloads, Dockerfile, Compose and Actions workflow — complete.
 3. Validate shell/YAML/Compose, run current native tests and inspect the diff — complete; actionlint 1.7.12, sh -n, docker compose config, JSON and git diff checks passed; all 11 current Rust tests passed locally.
-4. Push on agent/codex/rust-engine, verify remote SHA and follow the cloud run — in progress.
-5. Verify published image and record Linux evidence/remaining NAS work — pending.
+4. Push on agent/codex/rust-engine, verify remote SHA and follow the cloud run — complete; source checkpoint 8c5dbb4, run 39885551001 succeeded.
+5. Verify published image and record Linux evidence/remaining NAS work — complete; anonymous GHCR manifest retrieval returned HTTP 200, matching the published digest. NAS deployment remains separate.
 
 Existing build caches do not eliminate registry/network latency. An uploaded
 image is not a NAS deployment, and passing the current suite does not establish

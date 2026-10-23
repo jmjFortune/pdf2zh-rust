@@ -15,6 +15,34 @@
 - Main release executable is approximately 12.0 MiB. Its direct `otool -L` dependencies are system `libiconv` and `libSystem`; ONNX Runtime is loaded dynamically. The standalone folder contains the executable, model, font and native runtime; resource hashes were verified and standalone translation passed with Python/resource environment variables unset. Native runtime assets remain OS/architecture-specific.
 - Bing returned HTTP 401 in live development checks, including the cookie-session implementation. That adapter remains experimental and is omitted from the Web selector; other unverified adapters are not claimed to work live.
 
+## 2026-10-23 Linux amd64 cloud image
+
+- Public repository: https://github.com/jmjFortune/pdf2zh-rust . User explicitly
+  selected the Rust repository and authorized public visibility after checking
+  that only the separate translator repository had previously been public.
+- Source/image revision: `8c5dbb4b2d68c0d4d1cf7215c8049cd6cb5ef99d`.
+- GitHub-hosted Ubuntu 24.04 run
+  [39885551001](https://github.com/jmjFortune/pdf2zh-rust/actions/runs/39885551001)
+  succeeded; job duration 9m34s. No Docker images were downloaded or built on Mac.
+- Docker's Linux release suite passed six unit tests, four PDF integration tests
+  and one real HTTP/process lifecycle integration test. That last test took
+  8.55s and used native Linux ONNX inference with a local mock translator.
+- The final runtime container passed font/model hash verification, native model
+  inference with nonempty detections, HTTP health and UI response, and UID 10001.
+- Published image: `ghcr.io/jmjfortune/pdf2zh-rust:sha-8c5dbb4b2d68`; `dev` matched
+  that image at verification time. Both publish logs report manifest digest
+  `sha256:2dfb6624948c13d3eef6c6f6ebee76a08b6810c1d7b85673ae0dd122935222be`.
+- An unauthenticated registry-token request followed by a manifest request
+  returned HTTP 200 with the same digest. No local Docker pull was performed.
+  This verifies anonymous registry access independently of the separate GitHub
+  package-metadata API, which rejected the current OAuth token for missing
+  read:packages scope. No credential permissions were changed.
+- The image contains pinned native runtime, model/font data, license texts,
+  application license and NOTICE. Release tests run before publication. The
+  workflow exports Buildx layer caches and does not upload a build-record artifact.
+- This verifies Linux image operation on the cloud runner. It is not a NAS
+  deployment, NAS memory benchmark or full upstream quality/parity acceptance.
+
 ## Remaining coverage
 
 Full upstream configuration/provider parity, cross-page paragraphs, complete table text translation, OCR, broad multilingual shaping, font subsetting, production packaging and NAS deployment are not complete. The development preview and README state these limits explicitly.
