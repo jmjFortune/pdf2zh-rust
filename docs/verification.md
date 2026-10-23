@@ -43,6 +43,55 @@
 - This verifies Linux image operation on the cloud runner. It is not a NAS
   deployment, NAS memory benchmark or full upstream quality/parity acceptance.
 
+## 2026-10-23 NAS deployment smoke
+
+- Hardware: Intel Celeron J1900 at 1.99 GHz, approximately 8 GB RAM, Linux amd64;
+  Docker 28.5.2 and Compose 2.40.3. Image manifest digest is the same verified
+  cloud digest above; container image ID is
+  `sha256:252debbe5d41cc62692a8f554c3271e17ece1d48f6520977d222ee07778b62a0`.
+- Deployment is an independent Compose project, container `pdf2zh-rust`, UID/GID
+  10001, private-interface port 7861 and named volume `pdf2zh-rust_pdf2zh-data`.
+  Restart policy is `unless-stopped`. Host-specific runtime files are outside
+  this repository; addresses, reports, samples and screenshots stay in ignored
+  local artifacts. No Docker image was downloaded or built on Mac.
+- Large-layer pull retries eventually succeeded without Docker daemon/network
+  changes. The model and font passed the embedded hash checks on NAS.
+- The first Google smoke job failed at the network stage. Container and host
+  curl reproduced TLS timeouts. Independent proxy delay tests returned a 504
+  for the existing default selector but HTTP 200/438 ms through the existing
+  registry egress. A backed-up, validated rule scoped to
+  `translate.googleapis.com` now selects that working egress. Hot reload
+  preserved all prior selector values and the proxy container's start time;
+  proxy mode, TUN and Docker daemon settings were not changed.
+- A fresh synthetic one-page task then passed real native layout inference,
+  live Google English→Chinese, side-by-side export, native PDF reopening/text
+  extraction, PDF download and PNG preview. Task completion took 29.59 seconds.
+  Output is 9,026,930 bytes and the preview is 20,997 bytes. The browser showed
+  completed history and the bilingual page; the PNG was visually inspected.
+  This was a warm-filesystem second attempt, not a cold benchmark. The first
+  failed synthetic task remains in test history as diagnostic evidence.
+- Host-side cgroup v2 sampling at approximately 100 ms (318 samples) recorded
+  working set as `memory.current - inactive_file`: baseline 1.72 MiB, sampled
+  peak 432.45 MiB, and 1.94 MiB after completion. Raw `memory.current` peak was
+  432.84 MiB. Docker stats independently reported 1.934 MiB after the task and
+  1.359 MiB after restart. The native analyzer and translation workers had exited;
+  the idle container held docker-init and the Rust service only. The Python
+  measurement script runs on the host, not as an application dependency.
+- Restart verification ran only while all tasks were terminal. The new Rust
+  container returned healthy; completed task history and the PDF SHA-256 survived
+  on the named volume. No lifecycle operation targeted the old upstream service.
+- Text-layer follow-up: native extraction of this visibly correct page returned
+  the full translated sentence plus a duplicate trailing `变。` fragment and
+  whitespace. The cause is not yet established. Exact full-paragraph extraction
+  across all PDF consumers is therefore not claimed; keep this case for a later
+  PDF text-layer regression fix. Existing Unicode-presence tests alone do not
+  cover this defect.
+- Private evidence: ignored `artifacts/nas-smoke-report.json`,
+  `artifacts/nas-deployment-record.json`, `artifacts/nas-preview.png` and
+  `artifacts/nas-deployed.jpg`; raw samples/restart record remain in the NAS
+  deployment's smoke directory. This is one small fixture, not an upstream A/B
+  comparison or a bound for larger/scanned documents.
+
 ## Remaining coverage
 
-Full upstream configuration/provider parity, cross-page paragraphs, complete table text translation, OCR, broad multilingual shaping, font subsetting, production packaging and NAS deployment are not complete. The development preview and README state these limits explicitly.
+Full upstream configuration/provider parity, cross-page paragraphs, complete table text translation, OCR, broad multilingual shaping, exact text-layer roundtrips, font subsetting, production hardening and a controlled upstream comparison are not complete. The development preview and README state these limits explicitly.

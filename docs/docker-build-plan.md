@@ -42,3 +42,23 @@ only claims amd64 coverage.
 Existing build caches do not eliminate registry/network latency. An uploaded
 image is not a NAS deployment, and passing the current suite does not establish
 full compatibility with upstream.
+
+## NAS deployment — 2026-10-23
+
+User requested deployment after the image passed cloud checks. NAS is Linux
+amd64 with Docker Compose v2, sufficient available memory/disk, and unused port
+7861. Deploy the verified image by digest into a separate Compose project and
+named data volume; preserve the existing upstream container's current state.
+Bind only the trusted private NAS interface. Reuse the existing host proxy for
+translation requests, without changing daemon proxy, mirrors or TUN settings.
+
+1. Inspect NAS, existing containers, instructions and network — complete.
+2. Pull verified digest on NAS and write private runtime Compose settings — complete; transient large-layer retries resolved without changing Docker daemon settings.
+3. Start container, verify UID/assets/HTTP from NAS and client — complete; healthy, UID 10001, resources valid, client HTTP 200.
+4. Run a synthetic live translation, preview/download and observe cgroup memory — complete; native inference, live Google, Chinese/formula extraction, PDF/PNG responses and visual preview passed. The default proxy-egress timeout was resolved by a single-domain rule after independent route comparison; existing selectors and proxy process remained intact.
+5. Record outcome and remaining scope — complete; results are in verification.md. A restart of the idle Rust container preserved history and the output hash. Documentation push is checked separately against remote HEAD at handoff.
+
+Host-specific addresses/configuration and test artifacts stay out of Git. The
+test PDF is synthetic and contains no user data; Google is the existing free
+development provider. A deployment smoke test is not full upstream quality or a
+controlled performance comparison.

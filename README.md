@@ -2,7 +2,7 @@
 
 Independent rewrite of PDFMathTranslate-next/BabelDOC with Rust application code and native MuPDF/ONNX Runtime. No Python interpreter is used by the application.
 
-Implementation in progress. This is not yet a complete replacement for upstream. Development and tests run locally on Apple Silicon; NAS deployment follows validation.
+Implementation in progress. This is not yet a complete replacement for upstream. Development and tests run locally on Apple Silicon; the Linux amd64 Docker preview is also deployed and smoke-tested on NAS.
 
 The resident HTTP service starts a separate Rust worker for each translation. The worker starts another short-lived Rust process for layout inference; that process exits before remote translation begins, releasing the model's allocations. The translation worker exits when its task finishes.
 
@@ -65,6 +65,6 @@ cargo test --locked -j 2
 
 Tests include exact searchable Chinese Unicode, source-text removal, protected formula/vector pixels, formula relocation without hidden duplicate paragraphs, all four rotations with crop boxes, links/outlines in dual output, page validation, formula-marker validation, streaming preview, real worker and model-analysis processes, queued/blocked cancellation, and restart recovery. PDF tests require the prepared font and model.
 
-Live checks used synthetic PDFs and selected pages of the public paper *Attention Is All You Need*. The inline-formula path translates whole paragraphs with validated markers, then places original formula glyphs through clipped native PDF forms. It is not a guarantee of quality on every PDF. Current gaps include full upstream option/provider parity, cross-page paragraph semantics, complete table-text translation, OCR and broad language/font-shaping coverage. NAS deployment has not been performed.
+Live checks used synthetic PDFs and selected pages of the public paper *Attention Is All You Need*. The inline-formula path translates whole paragraphs with validated markers, then places original formula glyphs through clipped native PDF forms. It is not a guarantee of quality on every PDF. Current gaps include full upstream option/provider parity, cross-page paragraph semantics, complete table-text translation, OCR and broad language/font-shaping coverage. NAS smoke checks passed live Google translation, preview/download and persistent history/output across a container restart; see the verification record for measurements and text-extraction limits.
 
 Development memory observations are recorded in `docs/verification.md`. Mac process RSS and NAS cgroup memory are different metrics; they must not be treated as a controlled speed or memory benchmark.

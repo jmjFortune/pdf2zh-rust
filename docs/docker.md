@@ -30,7 +30,15 @@ registry authentication on the NAS; a public package supports anonymous pulls.
 First-run verification on 2026-10-23 passed: run 39885551001 published
 `sha-8c5dbb4b2d68` and `dev`, and the registry accepted anonymous manifest access.
 The 11-test Linux suite and final-container smoke checks passed. Exact revision
-and digest are recorded in `verification.md`; NAS deployment remains pending.
+and digest are recorded in `verification.md`.
+
+NAS deployment was subsequently verified on 2026-10-23 with the same image
+digest, a separate named volume and a trusted private-interface binding. Live
+Google translation, native inference, rendered preview/download and persistent
+history/output across a restart passed. The single-page test took 29.59 seconds
+with a 432.45 MiB sampled container working-set peak and about 2 MiB after worker
+exit. This is a synthetic smoke test, not a large-document performance promise.
+Host addresses and runtime settings remain in ignored local deployment records.
 
 ## Run on a Linux amd64 machine
 
@@ -68,10 +76,11 @@ runtime image includes those assets, ONNX notices and the model/font licenses.
 There is no Python interpreter, Gradio, CPython extension or Python dependency
 installer in the application image.
 
-Model inference can still peak around 1.3 GiB in the local Mac measurements. Its
-separate process exits before remote translation; Linux/NAS measurements must be
-recorded separately. Font subsetting, OCR, full table translation and other gaps
-remain as documented in `verification.md`.
+Model inference peaked around 1.3 GiB in the earlier Mac process-RSS measurement;
+the NAS single-page cgroup sample was different, as reported above. These are
+different platforms and metrics. The separate analyzer exits before remote
+translation. Font subsetting, OCR, full table translation and other gaps remain
+as documented in `verification.md`.
 
 The Dockerfile can be built by another Linux builder with `docker buildx build
 --platform linux/amd64 --load -t pdf2zh-rust:local .`. Docker builds and image
