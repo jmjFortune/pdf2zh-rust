@@ -9,6 +9,7 @@ The independent service defaults to `127.0.0.1:7861`. These endpoints are not cl
 | GET | `/api/jobs` | Latest 100 public task records |
 | GET | `/api/jobs/{id}` | Public state, progress, error and output page count |
 | GET | `/api/jobs/{id}/events` | SSE `job` events until terminal state |
+| POST | `/api/jobs/{id}/retry` | Create a new task using retained input and explicitly supplied JSON upload options; only failed/cancelled/interrupted tasks |
 | POST | `/api/jobs/{id}/cancel` | Cancel queued work, or signal/terminate active worker |
 | GET | `/api/jobs/{id}/input` | Stream original PDF |
 | GET | `/api/jobs/{id}/output` | Stream completed PDF |
@@ -55,3 +56,14 @@ Provider URL conventions:
 - `dify` and `anythingllm`: `base_url` is the complete workflow/chat endpoint.
 
 Provider adapters beyond live Google and the local OpenAI contract fixture remain unverified against real credentials. They are not marked production-ready.
+
+
+## Provider failures and phase progress
+
+The first selected page is analyzed and translated before analyzing the remaining pages. Model processes still exit before translation HTTP waits. Layout page counters describe analysis only, not completed translations; the browser uses an indeterminate indicator in that stage and displays the number of completed translated blocks separately.
+
+HTTP errors retain bounded structured `error.type`, `error.code` and `error.message` diagnostics (maximum 16 KiB input, 600 diagnostic characters). Supplied API keys, Bearer/sk tokens and exact submitted text are redacted; raw HTML/error-body dumps are omitted. HTTP 400/401/403 and other permanent statuses are not blindly retried. 408, 429 and 5xx retain bounded retries. Provider-specific error messages may still contain provider-supplied context; never deliberately return raw request dumps.
+
+OpenAI-compatible requests identify this application honestly as `pdf2zh-rust/<version>` and send a stable random `x-opencode-session` for the current worker's translation session, as required by [OpenCode Go's client documentation](https://dev.opencode.ai/v2/docs/console/go#where-can-i-use-it). This does not impersonate a coding client or guarantee Go accepts PDF translation traffic.
+
+Retry JSON uses the same fields as upload `options`. It creates a new UUID/history record and hard-links (or copies) the retained immutable input; the original failure stays intact. The caller must explicitly provide all desired settings again, including API key/password when needed. The web button says it uses the current form settings. No key is restored from history, stored in browser persistence, or returned by this API. Valid per-paragraph translation cache entries remain reusable when all cache-key settings match. This is a cached re-run, not a saved partially translated PDF or an automatic resume at the previous page.

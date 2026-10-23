@@ -40,6 +40,86 @@ pub struct Translator {
     client: reqwest::Client,
     cache: Connection,
     last_request: Option<std::time::Instant>,
+    session: String,
+}
+
+#[derive(Debug)]
+struct ProviderError {
+    status: reqwest::StatusCode,
+    detail: String,
+}
+impl std::fmt::Display for ProviderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "translation service returned HTTP {}{}",
+            self.status.as_u16(),
+            self.detail
+        )
+    }
+}
+impl std::error::Error for ProviderError {}
+
+fn retryable(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<ProviderError>().is_none_or(|e| {
+        e.status == reqwest::StatusCode::TOO_MANY_REQUESTS
+            || e.status == reqwest::StatusCode::REQUEST_TIMEOUT
+            || e.status.is_server_error()
+    })
+}
+
+// Keep structured provider diagnostics, never a raw HTML error page or request
+// dump. Bound the response and remove supplied credentials before public history.
+async fn check_response(
+    mut response: reqwest::Response,
+    key: Option<&str>,
+    text: &str,
+) -> Result<reqwest::Response> {
+    if response.status().is_success() {
+        return Ok(response);
+    }
+    let status = response.status();
+    let mut bytes = Vec::new();
+    while let Ok(Some(chunk)) = response.chunk().await {
+        if bytes.len() + chunk.len() > 16 * 1024 {
+            break;
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let mut detail = String::new();
+    if let Ok(body) = serde_json::from_slice::<Value>(&bytes) {
+        let error = body.get("error").unwrap_or(&body);
+        for field in ["type", "code", "message"] {
+            if let Some(value) = error.get(field).and_then(Value::as_str) {
+                if !detail.is_empty() {
+                    detail.push_str("; ");
+                }
+                detail.push_str(value);
+            }
+        }
+        if detail.is_empty()
+            && let Some(value) = error.as_str()
+        {
+            detail.push_str(value);
+        }
+    }
+    if let Some(key) = key.filter(|s| !s.is_empty()) {
+        detail = detail.replace(key, "[redacted]");
+    }
+    if !text.is_empty() {
+        detail = detail.replace(text, "[request text]");
+    }
+    let secrets = regex::Regex::new(r"(?i)(?:bearer\s+|sk[-_])[A-Za-z0-9._~+/=-]+").unwrap();
+    detail = secrets.replace_all(&detail, "[redacted]").into_owned();
+    detail = detail
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(600)
+        .collect();
+    if !detail.is_empty() {
+        detail.insert_str(0, ": ");
+    }
+    Err(ProviderError { status, detail }.into())
 }
 impl Translator {
     pub fn new(mut settings: TranslationSettings, cache: &Path) -> Result<Self> {
@@ -74,6 +154,7 @@ impl Translator {
         let cache = Connection::open(cache)?;
         cache.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, value TEXT NOT NULL, accessed INTEGER NOT NULL DEFAULT (unixepoch()));")?;
         let client = reqwest::Client::builder()
+            .user_agent(concat!("pdf2zh-rust/", env!("CARGO_PKG_VERSION")))
             .cookie_store(true)
             .timeout(Duration::from_secs(90))
             .connect_timeout(Duration::from_secs(15))
@@ -83,6 +164,7 @@ impl Translator {
             client,
             cache,
             last_request: None,
+            session: uuid::Uuid::new_v4().to_string(),
         })
     }
 
@@ -134,7 +216,7 @@ impl Translator {
                     Err(e) if attempt == 2 => return Err(e),
                     Err(_) => tokio::time::sleep(Duration::from_secs(1 << attempt)).await,
                 },
-                Err(e) if attempt == 2 => return Err(e),
+                Err(e) if attempt == 2 || !retryable(&e) => return Err(e),
                 Err(_) => tokio::time::sleep(Duration::from_secs(1 << attempt)).await,
             }
         }
@@ -245,8 +327,9 @@ impl Translator {
             "openai" => {
                 ensure!(!s.base_url.is_empty() && !s.model.is_empty(),"OpenAI-compatible base_url and model are required");
                 let mut request=self.client.post(format!("{}/chat/completions",s.base_url.trim_end_matches('/')))
+                    .header("x-opencode-session", &self.session)
                     .json(&json!({"model":s.model,"temperature":0,"messages":[
-                        {"role":"system","content":format!("Translate from {} to {}. Return only the translation, no explanations, no markdown fences. Preserve all symbols and technical terminology.",s.source,s.target)},
+                        {"role":"system","content":format!("Translate from {} to {}. Return only the translation, no explanations, no markdown fences. Preserve all symbols and technical terminology. Preserve every ⟦number⟧ marker exactly once, without changing its number.",s.source,s.target)},
                         {"role":"user","content":text}]}));
                 if let Some(key)=&s.api_key { request=request.bearer_auth(key); }
                 request.send().await
@@ -295,11 +378,7 @@ impl Translator {
             },
             _ => bail!("unsupported provider"),
         }.map_err(|_|anyhow::anyhow!("translation network request failed"))?;
-        ensure!(
-            response.status().is_success(),
-            "translation service returned HTTP {}",
-            response.status().as_u16()
-        );
+        let response = check_response(response, s.api_key.as_deref(), text).await?;
         let body: Value = response
             .json()
             .await
@@ -384,6 +463,45 @@ fn chunks(text: &str, max_chars: usize) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn provider_errors_are_bounded_redacted_and_retry_only_transient_statuses() -> Result<()>
+    {
+        use axum::{Json, Router, http::StatusCode, routing::post};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let app = Router::new()
+            .route("/permanent", post(|| async { (StatusCode::BAD_REQUEST, Json(json!({"error":{"code":"bad_model","message":"missing session; secret-key-example; private input"}}))) }))
+            .route("/transient", post(|| async { (StatusCode::TOO_MANY_REQUESTS, Json(json!({"error":{"message":"rate limited"}}))) }))
+            .route("/large", post(|| async { (StatusCode::BAD_REQUEST, "x".repeat(32 * 1024)) }));
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client = reqwest::Client::new();
+        let error = check_response(
+            client.post(format!("{url}/permanent")).send().await?,
+            Some("secret-key-example"),
+            "private input",
+        )
+        .await
+        .unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("bad_model") && message.contains("missing session"));
+        assert!(!message.contains("secret-key-example") && !message.contains("private input"));
+        assert!(!retryable(&error));
+        let error = check_response(
+            client.post(format!("{url}/transient")).send().await?,
+            None,
+            "",
+        )
+        .await
+        .unwrap_err();
+        assert!(retryable(&error));
+        let error = check_response(client.post(format!("{url}/large")).send().await?, None, "")
+            .await
+            .unwrap_err();
+        assert_eq!(error.to_string(), "translation service returned HTTP 400");
+        server.abort();
+        Ok(())
+    }
+
     #[test]
     fn bounded_chunks_preserve_utf8_and_formula_markers() {
         let text = "你好世界⟦123⟧，测试结束。";

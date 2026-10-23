@@ -30,3 +30,11 @@
 - 验证：容器 healthy、UID 10001、资源哈希正常；NAS 与客户端 HTTP 200。真实 Google 单页任务 29.59 秒完成，中文/公式、PDF 下载、PNG 预览和浏览器展示通过；空闲重启后历史与输出哈希保持。NAS cgroup 采样峰值 working set 432.45 MiB，结束后约 1.94 MiB；非完整性能基准。
 - 没做完 / 已知问题：仍是开发版，完整上游覆盖和同输入对照未完成；该样本原生文本提取还存在尾部重复碎片，已在 verification 记录，不把视觉正确等同于全文提取完全正确。首个失败的网络测试任务保留在历史中；第二次已成功。没有操作原版容器生命周期。
 - 下一个接手的人先看：verification.md 的 NAS 记录、docker.md；本机忽略的 artifacts/nas-deployment-record.json 保存私有入口和 NAS 部署目录，下一项代码工作可先补文本层精确回归。
+
+
+## 2026-10-23 Codex（HTTP 400 与误导进度修复）
+- 做了什么：确认真实 47 页任务失败于第一页首段；旧进度把全篇版面分析显示得像翻译接近完成。改为第一页分析/翻译后再分析余页，进度明确区分阶段和已完成正文段数；补应用/会话标识、受限脱敏错误原因、永久 HTTP 错误不盲重试，以及复用保留原文件、显式提供当前设置的新任务重试接口/按钮。
+- 改了哪些文件：src/engine.rs、src/translate.rs、src/service.rs、web/index.html、tests/service_lifecycle.rs 及 API/验证/进度文档。当前 translator 业务源码未改。
+- 验证：cargo fmt --check、cargo test --locked -j 2（7 单元 + 4 PDF + 1 进程生命周期，共 12 项）、release build、浏览器脚本语法和 git diff --check 通过。将 engine/translate 临时还原 HEAD 后新生命周期测试确实失败，随后恢复修复并跑完整套通过。
+- 没做完 / 已知问题：原 HTTP 错误体被旧版丢弃，Key 也按原设计清除；缺少 OpenCode session 是有文档与官方仓库同类 400 报告支持的候选原因，未用用户 Key 实际确认。云端构建及 NAS 升级待下续验证。重试是利用段落缓存重新生成，尚无部分 PDF/逐页检查点，不声称可恢复此前未生成的译文。
+- 下一个接手的人先看：docs/verification.md 和 docs/api.md；保持旧失败记录/输入，不从无关应用提取 Key，不把 Key 发聊天，不在 Mac 拉 Docker。NAS 升级只在无活跃任务时操作 Rust 容器并保留原卷。

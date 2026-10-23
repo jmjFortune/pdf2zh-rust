@@ -56,3 +56,7 @@
 - 单页合成 PDF 完成于 29.59 秒；原生布局、中文公式、并排 PDF、PNG 预览下载和浏览器展示均验证。重启仅新 Rust 容器后，历史和输出哈希保持。
 - NAS 100 ms cgroup 采样：working set 峰值 432.45 MiB，结束后 1.94 MiB；后续 Docker stats 为 1.934 MiB，重启后 1.359 MiB。与早先 Mac RSS 分开记录，不宣称大文档或上游同输入对照已完成。
 - 一个文本层精确性问题已记录：视觉页面正确，原生提取末尾多出“变。”碎片。未为本次部署修改排版代码；后续应以这个样本补精确回归。完整重写仍在进行。
+
+## 2026-10-23 HTTP 400 / misleading late progress investigation
+- NAS failed task reports translate page 1/47, zero completed blocks; one shared cache row belongs to the earlier smoke task. User confirms API key was supplied. Input PDF retained; terminal job.json and provider response body were deleted by old behavior, so the exact rejection reason is not yet known.
+- Fix in progress: translate first selected page before analyzing remainder, label analysis as its own phase, bounded/redacted provider errors and selective retry, retry using retained input and explicitly supplied settings. Verify with rejecting mock provider and real worker lifecycle, then cloud-build/deploy while idle. Real OpenCode validation requires the user's key to be re-entered in the UI; do not request keys in chat.

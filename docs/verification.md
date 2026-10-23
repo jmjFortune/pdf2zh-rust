@@ -95,3 +95,13 @@
 ## Remaining coverage
 
 Full upstream configuration/provider parity, cross-page paragraphs, complete table text translation, OCR, broad multilingual shaping, exact text-layer roundtrips, font subsetting, production hardening and a controlled upstream comparison are not complete. The development preview and README state these limits explicitly.
+
+
+## 2026-10-23 first-page HTTP 400 investigation
+
+- Real NAS failure for a 47-page input was at `translate` page 1, zero completed blocks. Only the previous one-page smoke translation was in the shared cache. Full-document layout analysis had consumed the time and looked like nearly completed translation in the old UI.
+- The old code discarded the HTTP response body and removed credentials at terminal state. User confirms a key was supplied. Therefore the exact original rejection cannot be reconstructed from retained history. Missing OpenCode session/client identity is a concrete compatibility defect and plausible cause, supported by [OpenCode documentation](https://dev.opencode.ai/v2/docs/console/go) and [official-repository report #47756](https://github.com/anomalyco/opencode/issues/47756); it is not claimed as confirmed against the user's key.
+- Local regression checks cover structured/redacted/bounded provider diagnostics, permanent-vs-transient retry selection, application/session headers, a two-page native-layout task rejected on page 1, retained-file retry into a distinct completed history record, and private-settings deletion. Full local suite and cloud/NAS deployment verification recorded after execution below.
+- Anonymous NAS diagnostic probes did not reproduce the authenticated failure (one generic client got edge HTTP 403; later honest-user-agent requests timed out). These are not evidence of an invalid user key or successful OpenCode integration. No credentials were read from unrelated applications or requested in chat.
+
+- Fresh local verification: 12 tests passed (7 unit, 4 PDF, 1 process/HTTP lifecycle), release build succeeded; JS parsed, fmt and diff checks passed. The expanded lifecycle regression failed against restored HEAD engine/translator because the old client omitted required identity headers; restoring the patch and running the full suite passed. Logs of the intentional before-fix failure are ignored under artifacts.

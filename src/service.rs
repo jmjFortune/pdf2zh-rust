@@ -154,6 +154,7 @@ pub async fn serve(root: PathBuf, listen: String) -> Result<()> {
         .route("/api/health",get(||async {Json(serde_json::json!({"status":"ok","engine":"rust","version":env!("CARGO_PKG_VERSION")}))}))
         .route("/api/jobs",get(list).post(upload)).route("/api/jobs/{id}",get(detail))
         .route("/api/jobs/{id}/cancel",post(cancel)).route("/api/jobs/{id}/events",get(events))
+        .route("/api/jobs/{id}/retry",post(retry))
         .route("/api/jobs/{id}/output",get(output)).route("/api/jobs/{id}/input",get(input))
         .route("/api/jobs/{id}/preview/{page}",get(preview))
         .layer(DefaultBodyLimit::max(200*1024*1024)).with_state(store);
@@ -219,6 +220,44 @@ async fn upload(State(s): State<Shared>, mut form: Multipart) -> WebResult<Json<
         }
     }
     let filename = filename.context("missing PDF upload")?;
+    enqueue(&s, &id, &filename, options)?;
+    cleanup.keep = true;
+    Ok(Json(s.get(&id)?))
+}
+
+// New settings, including credentials, must be supplied explicitly. Reuse only
+// the retained PDF; leave the failed record and its progress intact.
+async fn retry(
+    State(s): State<Shared>,
+    Path(source): Path<String>,
+    Json(options): Json<UploadOptions>,
+) -> WebResult<Json<JobInfo>> {
+    let old = s.get(&source)?;
+    require(
+        ["failed", "interrupted", "cancelled"].contains(&old.status.as_str()),
+        "only stopped tasks can be retried",
+    )?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let directory = s.root.join(&id);
+    tokio::fs::create_dir(&directory).await?;
+    let mut cleanup = UploadCleanup {
+        path: directory.clone(),
+        keep: false,
+    };
+    let input = s.root.join(source).join("input.pdf");
+    if tokio::fs::hard_link(&input, directory.join("input.pdf"))
+        .await
+        .is_err()
+    {
+        tokio::fs::copy(&input, directory.join("input.pdf")).await?;
+    }
+    enqueue(&s, &id, &old.filename, options)?;
+    cleanup.keep = true;
+    Ok(Json(s.get(&id)?))
+}
+
+fn enqueue(s: &Store, id: &str, filename: &str, options: UploadOptions) -> Result<()> {
+    let directory = s.root.join(id);
     let config = JobConfig {
         input: directory.join("input.pdf"),
         output: directory.join("output.pdf"),
@@ -247,8 +286,7 @@ async fn upload(State(s): State<Shared>, mut form: Multipart) -> WebResult<Json<
         "INSERT INTO jobs(id,filename,status) VALUES(?1,?2,'queued')",
         params![id, filename],
     )?;
-    cleanup.keep = true;
-    Ok(Json(s.get(&id)?))
+    Ok(())
 }
 
 async fn cancel(State(s): State<Shared>, Path(id): Path<String>) -> WebResult<Json<JobInfo>> {

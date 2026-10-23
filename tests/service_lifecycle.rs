@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use axum::response::IntoResponse;
 use pdf2zh_rust::{pdf, service::JobInfo};
 use serde_json::json;
 use std::{
@@ -77,13 +78,21 @@ async fn upload_download_failure_and_cancellation_use_real_worker_processes() ->
     let handler_delay = delay.clone();
     let requests = Arc::new(AtomicU64::new(0));
     let handler_requests = requests.clone();
+    let rejecting = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let handler_rejecting = rejecting.clone();
     let mock = axum::Router::new().route(
         "/chat/completions",
-        axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+        axum::routing::post(move |headers: axum::http::HeaderMap, axum::Json(body): axum::Json<serde_json::Value>| {
             let delay = handler_delay.clone();
             let requests = handler_requests.clone();
+            let rejecting = handler_rejecting.clone();
             async move {
+                assert!(headers["user-agent"].to_str().unwrap().starts_with("pdf2zh-rust/"));
+                assert!(uuid::Uuid::parse_str(headers["x-opencode-session"].to_str().unwrap()).is_ok());
                 requests.fetch_add(1, Ordering::Relaxed);
+                if rejecting.load(Ordering::Relaxed) {
+                    return (axum::http::StatusCode::BAD_REQUEST, axum::Json(json!({"error":{"code":"invalid_request","message":"provider requires a session; Bearer sk-private-example"}}))).into_response();
+                }
                 tokio::time::sleep(Duration::from_millis(delay.load(Ordering::Relaxed))).await;
                 let text = if body["messages"][1]["content"]
                     .as_str()
@@ -94,7 +103,7 @@ async fn upload_download_failure_and_cancellation_use_real_worker_processes() ->
                 } else {
                     "你好，世界。这是契约测试译文。"
                 };
-                axum::Json(json!({"choices":[{"message":{"content":text}}]}))
+                axum::Json(json!({"choices":[{"message":{"content":text}}]})).into_response()
             }
         }),
     );
@@ -293,6 +302,64 @@ async fn upload_download_failure_and_cancellation_use_real_worker_processes() ->
     let invalid = poll(&client, &base, &invalid.id, true).await?;
     assert_eq!(invalid.status, "failed");
     assert!(!data.join(&invalid.id).join("output.pdf").exists());
+    // A real two-page native analysis must stop on page one's first HTTP 400,
+    // preserving the provider reason rather than analyzing the entire PDF.
+    let two_pages = tmp.path().join("two-pages.pdf");
+    {
+        let mut doc = pdf::open(&input, None)?;
+        doc.new_page(mupdf::Size::A4)?;
+        doc.save(two_pages.to_str().unwrap())?;
+    }
+    rejecting.store(true, Ordering::Relaxed);
+    let before = requests.load(Ordering::Relaxed);
+    let rejected = upload(&client, &base, &std::fs::read(&two_pages)?, &mock_url, true).await?;
+    let rejected = poll(&client, &base, &rejected.id, true).await?;
+    assert_eq!(rejected.status, "failed");
+    let progress = rejected.progress.as_ref().unwrap();
+    assert_eq!(
+        (progress.page, progress.total, progress.completed_blocks),
+        (1, 2, 0)
+    );
+    let error = rejected.error.as_deref().unwrap();
+    assert!(
+        error.contains("HTTP 400") && error.contains("provider requires a session"),
+        "{error}"
+    );
+    assert!(
+        !error.contains("sk-private-example"),
+        "credentials leaked: {error}"
+    );
+    assert_eq!(
+        requests.load(Ordering::Relaxed) - before,
+        1,
+        "permanent 400 must not retry unchanged requests"
+    );
+    assert!(data.join(&rejected.id).join("input.pdf").is_file());
+    assert!(!data.join(&rejected.id).join("job.json").exists());
+    rejecting.store(false, Ordering::Relaxed);
+    // Retry uses retained input and explicit replacement settings, creates a new
+    // history record, and never alters the old failure or asks for another upload.
+    let retry: JobInfo = client.post(format!("{base}/api/jobs/{}/retry", rejected.id))
+        .json(&json!({"layout":true,"translation":{"provider":"openai","base_url":mock_url,"model":"retry-contract"}}))
+        .send().await?.error_for_status()?.json().await?;
+    let retry = poll(&client, &base, &retry.id, true).await?;
+    assert_eq!(retry.status, "completed", "{:?}", retry.error);
+    assert_eq!(retry.output_pages, Some(2));
+    assert_ne!(retry.id, rejected.id);
+    assert_eq!(
+        poll(&client, &base, &rejected.id, true).await?.status,
+        "failed"
+    );
+    assert!(!data.join(&retry.id).join("job.json").exists());
+    assert_eq!(
+        client
+            .post(format!("{base}/api/jobs/{}/retry", retry.id))
+            .json(&json!({}))
+            .send()
+            .await?
+            .status(),
+        reqwest::StatusCode::BAD_REQUEST
+    );
     delay.store(20_000, Ordering::Relaxed);
     let expected_request = requests.load(Ordering::Relaxed) + 1;
     let running = upload(&client, &base, &bytes, &mock_url, false).await?;
@@ -324,7 +391,7 @@ async fn upload_download_failure_and_cancellation_use_real_worker_processes() ->
         .await?
         .json()
         .await?;
-    assert_eq!(jobs.len(), 5);
+    assert_eq!(jobs.len(), 7);
     drop(server);
     {
         let db = rusqlite::Connection::open(data.join("jobs.sqlite3"))?;

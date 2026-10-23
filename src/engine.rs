@@ -4,7 +4,7 @@ use crate::{
     types::{Bounds, Glyph, LayoutRegion, PageText},
     typeset::{self, Content, MathFragment},
 };
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
@@ -85,17 +85,37 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
             .clone()
             .unwrap_or_else(|| config.data_dir.join("cache.sqlite3")),
     )?;
-    let layouts = if config.layout {
-        crate::analysis::run_process(config, &mut emit).await?
-    } else {
-        std::collections::BTreeMap::new()
-    };
+    let mut layouts = std::collections::BTreeMap::new();
+    let first_selected = *selected.first().context("no pages selected")?;
+    let mut remainder_analyzed = false;
     let mut completed = 0usize;
     for index in 0..total {
         if !selected.contains(&index) {
             continue;
         }
         check_cancel(&config.data_dir)?;
+        // Exercise the real provider on the first selected page before spending
+        // minutes analyzing the rest. Native models still exit before HTTP waits.
+        if config.layout && (index == first_selected || !remainder_analyzed) {
+            let mut analysis = config.clone();
+            analysis.pages = if index == first_selected {
+                (index + 1).to_string()
+            } else {
+                remainder_analyzed = true;
+                selected
+                    .range(index..)
+                    .map(|p| (p + 1).to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            };
+            layouts.extend(
+                crate::analysis::run_process(&analysis, &mut |mut event| {
+                    event.completed_blocks = completed;
+                    emit(event);
+                })
+                .await?,
+            );
+        }
         emit(Progress {
             stage: "extract".into(),
             page: index + 1,
@@ -130,7 +150,14 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
                 completed_blocks: completed,
                 message: String::new(),
             });
-            let translated = translator.translate(&unit.text).await?;
+            let translated = translator.translate(&unit.text).await.with_context(|| {
+                format!(
+                    "page {}/{}, completed {} blocks",
+                    index + 1,
+                    total,
+                    completed
+                )
+            })?;
             if translated.trim() == unit.text.trim() {
                 continue;
             }
