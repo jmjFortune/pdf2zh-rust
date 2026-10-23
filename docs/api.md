@@ -125,3 +125,43 @@ page number must never be presented as completed translation percentage.
 This adapter does not implement the Python backend's Zotero connector endpoints,
 OCR, or structured paragraph/formula reader API. The About page identifies those
 limits. No existing translator credential file is imported automatically.
+
+## Provider profiles and UI terminology (2026-10-23)
+
+The UI catalogue has twenty independently configured profiles. Existing six IDs
+remain valid; saved credentials, defaults and hidden Library records are kept.
+`src/service/profiles.json` maps each profile to a real protocol, not merely a
+button. Google, Ollama, DeepL, DeepLX, Azure OpenAI, Azure Translator, Dify and
+AnythingLLM use their existing native adapters. OpenAI Compatible, OpenCode Go,
+DeepSeek, Gemini, Zhipu, SiliconFlow, ModelScope, Qwen / Model Studio, Tencent
+Hunyuan, Groq, Grok / xAI and Xinference use the OpenAI-compatible adapter.
+Tencent Hunyuan does not claim support for Tencent Machine Translation. Bing's
+previous HTTP-401 endpoint remains unavailable in the UI.
+
+New model-provider profiles require the user to select a model available to their
+account. Qwen / Model Studio also needs its workspace endpoint. Azure OpenAI has
+an API-version option and deployment-name field; Azure Translator has a region
+option. These options are allowlisted, non-secret and included in the translation
+cache key. Unknown options are rejected; keys are never returned. Optional
+Xinference authentication does not fall back to the CLI's global key.
+
+The product label **Dual** now means a parallel original/translation PDF.
+**Interleaved** means alternating source/translation pages. Persisted/API keys
+remain `side_by_side` and `dual` respectively for compatibility. Download names
+use `-dual.pdf` for the parallel PDF and `-interleaved.pdf` for alternating pages.
+The Reader's Export Dual button prefers the parallel file; if only alternating
+pages exist, the label is Export Interleaved. About, its navigation entry and its
+exclusive plugin download are removed. A legacy About tab falls back to Translate.
+
+Endpoint references checked against the providers' primary documentation:
+[Gemini](https://ai.google.dev/gemini-api/docs/openai),
+[DeepSeek](https://api-docs.deepseek.com/),
+[Zhipu](https://docs.bigmodel.cn/cn/guide/develop/openai/introduction),
+[SiliconFlow](https://docs.siliconflow.cn/docs/userguide/quickstart),
+[Groq](https://console.groq.com/docs/openai),
+[xAI](https://docs.x.ai/developers/rest-api-reference/inference/chat-completions),
+[Qwen / Model Studio](https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope),
+[Tencent Hunyuan](https://cloud.tencent.com/document/product/1729/111007),
+[Xinference](https://inference.readthedocs.io/en/latest/user_guide/client_api.html),
+[ModelScope](https://modelscope.cn/docs/model-service/API-Inference/intro).
+Mock protocol/authentication tests do not imply paid live account verification.

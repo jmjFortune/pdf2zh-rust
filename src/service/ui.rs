@@ -60,14 +60,8 @@ fn private_json(path: &FsPath, value: &impl Serialize) -> Result<()> {
     result
 }
 fn profiles() -> Value {
-    json!([
-      {"id":"google","name":"Google","needs_key":false,"default_base_url":"","default_model":"","note":"Public translation endpoint; network access and rate limits apply."},
-      {"id":"openai","name":"OpenAI Compatible","needs_key":true,"default_base_url":"https://api.openai.com/v1","default_model":"gpt-4o-mini"},
-      {"id":"opencode-go","name":"OpenCode Go","needs_key":true,"default_base_url":"https://opencode.ai/inference/go/openai/v1","default_model":"deepseek-v4.1-flash"},
-      {"id":"ollama","name":"Ollama","needs_key":false,"default_base_url":"http://host.docker.internal:11434","default_model":"qwen3:8b"},
-      {"id":"deepl","name":"DeepL","needs_key":true,"default_base_url":"","default_model":"","note":"Leave the URL blank to select DeepL Free or Pro from the key type."},
-      {"id":"deeplx","name":"DeepLX","needs_key":false,"default_base_url":"http://host.docker.internal:1188","default_model":""}
-    ])
+    serde_json::from_str(include_str!("profiles.json"))
+        .expect("bundled provider catalogue must be valid JSON")
 }
 fn profile(id: &str) -> Result<Value> {
     profiles()
@@ -93,6 +87,16 @@ fn settings_value(p: &Preferences) -> Value {
                     .cloned()
                     .unwrap_or_else(|| base[format!("default_{name}")].clone());
             }
+            let mut options = json!({});
+            for field in base["option_fields"].as_array().unwrap() {
+                let key = field["key"].as_str().unwrap();
+                options[key] = saved
+                    .and_then(|v| v.get("options"))
+                    .and_then(|v| v.get(key))
+                    .cloned()
+                    .unwrap_or_else(|| field["default"].clone());
+            }
+            value["options"] = options;
             value["has_key"] = json!(
                 saved
                     .and_then(|s| s["api_key"].as_str())
@@ -166,7 +170,7 @@ async fn save_settings(
     if let Some(services) = patch["services"].as_array() {
         for item in services {
             let id = item["id"].as_str().context("service id required")?;
-            profile(id)?;
+            let spec = profile(id)?;
             let saved = next.services.entry(id.into()).or_insert(json!({}));
             for field in ["base_url", "model", "api_key"] {
                 if let Some(value) = item.get(field) {
@@ -176,6 +180,30 @@ async fn save_settings(
                         valid_url(value)?;
                     }
                     saved[field] = json!(value.trim());
+                }
+            }
+            if let Some(options) = item.get("options") {
+                let options = options
+                    .as_object()
+                    .context("provider options must be an object")?;
+                if !saved["options"].is_object() {
+                    saved["options"] = json!({});
+                }
+                for (key, value) in options {
+                    require(
+                        spec["option_fields"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|field| field["key"] == *key),
+                        "unknown provider option",
+                    )?;
+                    let value = value.as_str().context("provider option must be text")?;
+                    require(
+                        value.len() <= 128 && !value.chars().any(char::is_control),
+                        "invalid provider option",
+                    )?;
+                    saved["options"][key] = json!(value.trim());
                 }
             }
         }
@@ -279,7 +307,7 @@ pub(super) fn save_snapshot(dir: &FsPath, config: &JobConfig) -> Result<()> {
     }
     private_json(
         &dir.join("settings.json"),
-        &json!({"service":config.translation.provider,"lang_in":config.translation.source,"lang_out":config.translation.target,"base_url":public_url(&config.translation.base_url),"model":config.translation.model,"page_range":config.pages,"output_formats":exports.iter().map(|f|f.ui_name()).collect::<Vec<_>>(),"thread":1}),
+        &json!({"service":config.translation.provider,"lang_in":config.translation.source,"lang_out":config.translation.target,"base_url":public_url(&config.translation.base_url),"model":config.translation.model,"page_range":config.pages,"output_formats":exports.iter().map(|f|f.ui_name()).collect::<Vec<_>>(),"thread":1,"provider_options":config.translation.options.iter().filter(|(k,_)|["region","api_version"].contains(&k.as_str())).collect::<BTreeMap<_,_>>()}),
     )
 }
 fn snapshot(s: &Store, id: &str) -> Value {
@@ -389,6 +417,86 @@ async fn cancel_job(State(s): State<Shared>, Path(id): Path<String>) -> WebResul
     Ok(Json(job_value(&s, &s.get(&id)?)))
 }
 
+// Resolve a UI profile to the actual protocol before queuing a model/PDF worker.
+fn translation_settings(
+    prefs: &Preferences,
+    service: &str,
+    source: String,
+    target: String,
+) -> Result<TranslationSettings> {
+    let base = profile(service)?;
+    let saved = prefs.services.get(service);
+    let setting = |name: &str| {
+        saved
+            .and_then(|v| v.get(name))
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| base[format!("default_{name}")].as_str().unwrap_or(""))
+            .to_owned()
+    };
+    let key = saved
+        .and_then(|v| v["api_key"].as_str())
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned);
+    anyhow::ensure!(
+        !base["needs_key"].as_bool().unwrap_or(false) || key.is_some(),
+        "Configure {} API key in Settings first",
+        base["name"].as_str().unwrap()
+    );
+    let provider = base["provider"]
+        .as_str()
+        .context("profile lacks protocol")?
+        .to_owned();
+    let base_url = setting("base_url");
+    let model = setting("model");
+    anyhow::ensure!(
+        !base["requires_model"].as_bool().unwrap_or(false) || !model.is_empty(),
+        "Set a model or deployment name for {} in Settings",
+        base["name"].as_str().unwrap()
+    );
+    anyhow::ensure!(
+        ![
+            "openai",
+            "azureopenai",
+            "azure",
+            "dify",
+            "anythingllm",
+            "deeplx"
+        ]
+        .contains(&provider.as_str())
+            || !base_url.is_empty(),
+        "Set the API URL for {} in Settings",
+        base["name"].as_str().unwrap()
+    );
+    valid_url(&base_url)?;
+    let mut options = BTreeMap::new();
+    for field in base["option_fields"].as_array().unwrap() {
+        let name = field["key"].as_str().unwrap();
+        let value = saved
+            .and_then(|v| v.get("options"))
+            .and_then(|v| v.get(name))
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| field["default"].as_str().unwrap_or(""));
+        options.insert(name.to_owned(), value.to_owned());
+    }
+    Ok(TranslationSettings {
+        provider,
+        source,
+        target,
+        base_url,
+        model,
+        api_key: if base["api_key_optional"].as_bool().unwrap_or(false) {
+            Some(key.unwrap_or_default())
+        } else {
+            key
+        },
+        options,
+        glossary: prefs.terms.clone(),
+        ..Default::default()
+    })
+}
+
 async fn create_job(State(s): State<Shared>, form: Multipart) -> WebResult<Json<Value>> {
     receive(s, form, None).await
 }
@@ -451,24 +559,6 @@ async fn receive(s: Shared, mut form: Multipart, source: Option<String>) -> WebR
         .get("service")
         .map(String::as_str)
         .unwrap_or("google");
-    let base = profile(service)?;
-    let saved = prefs.services.get(service);
-    let setting = |name: &str| {
-        saved
-            .and_then(|v| v.get(name))
-            .and_then(Value::as_str)
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| base[format!("default_{name}")].as_str().unwrap_or(""))
-            .to_owned()
-    };
-    let key = saved
-        .and_then(|v| v["api_key"].as_str())
-        .filter(|v| !v.is_empty())
-        .map(str::to_owned);
-    require(
-        !base["needs_key"].as_bool().unwrap_or(false) || key.is_some(),
-        "Configure this service API key in Settings first",
-    )?;
     let output_formats = formats(
         fields
             .get("output_formats")
@@ -476,26 +566,18 @@ async fn receive(s: Shared, mut form: Multipart, source: Option<String>) -> WebR
             .unwrap_or("mono"),
     )?;
     let mut options = UploadOptions {
-        translation: TranslationSettings {
-            provider: if service == "opencode-go" {
-                "openai".into()
-            } else {
-                service.into()
-            },
-            source: fields
+        translation: translation_settings(
+            &prefs,
+            service,
+            fields
                 .get("lang_in")
                 .cloned()
                 .unwrap_or_else(|| "en".into()),
-            target: fields
+            fields
                 .get("lang_out")
                 .cloned()
                 .unwrap_or_else(|| "zh-CN".into()),
-            base_url: setting("base_url"),
-            model: setting("model"),
-            api_key: key,
-            glossary: prefs.terms.clone(),
-            ..Default::default()
-        },
+        )?,
         pages: fields.get("page_range").cloned().unwrap_or_default(),
         format: Some(output_formats[0]),
         additional_formats: output_formats[1..].to_vec(),
@@ -615,9 +697,15 @@ async fn download(
     } else {
         "attachment"
     };
+    // Keep persisted format keys compatible; downloads use the product labels.
+    let filename_kind = match kind.as_str() {
+        "side_by_side" => "dual",
+        "dual" => "interleaved",
+        other => other,
+    };
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
-        format!("{disposition}; filename=\"{id}-{kind}.pdf\"").parse()?,
+        format!("{disposition}; filename=\"{id}-{filename_kind}.pdf\"").parse()?,
     );
     Ok(response)
 }
@@ -684,3 +772,7 @@ pub(super) async fn static_file(
         Err(e) => e.into_response(),
     }
 }
+
+#[cfg(test)]
+#[path = "ui_tests.rs"]
+mod tests;

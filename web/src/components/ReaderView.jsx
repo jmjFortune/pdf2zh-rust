@@ -48,7 +48,8 @@ export default function ReaderView({ paperId, onSelectLibrary }) {
   const originalPage = data?.pages[currentPage - 1] || currentPage;
   const translationKind = job?.files.mono ? "mono" : "dual";
   const translationPage = translationKind === "dual" ? currentPage * 2 : currentPage;
-  const dualDownload = job?.files.dual || job?.files.side_by_side;
+  const dualDownload = job?.files.side_by_side || job?.files.dual;
+  const dualDownloadLabel = job?.files.side_by_side ? "Export Dual" : "Export Interleaved";
 
   if (!paperId || error || !paper) {
     return <div className="max-w-3xl mx-auto space-y-6 py-4">
@@ -168,7 +169,7 @@ export default function ReaderView({ paperId, onSelectLibrary }) {
                   : "text-[#6E6961] hover:text-[#1F1E1D]"
               }`}
             >
-              Side by Side
+              Dual
             </button>
             <button
               onClick={() => setViewMode("zh")}
@@ -216,7 +217,7 @@ export default function ReaderView({ paperId, onSelectLibrary }) {
         <div className="flex items-center space-x-2 shrink-0 whitespace-nowrap">
           <button disabled={!dualDownload} onClick={() => window.location.assign(dualDownload)} className="flex items-center space-x-1.5 px-3.5 py-1.5 text-xs rounded-xl bg-[#FAF9F5] hover:bg-[#EAE5D9] border border-[#E2DBD0] text-[#1F1E1D] font-medium whitespace-nowrap shrink-0">
             <Download className="w-3.5 h-3.5 text-[#D97757]" />
-            <span>Export Dual</span>
+            <span>{dualDownloadLabel}</span>
           </button>
           <button disabled={!job.files.mono} onClick={() => window.location.assign(job.files.mono)} className="flex items-center space-x-1.5 px-3.5 py-1.5 text-xs rounded-xl bg-[#D97757] hover:bg-[#C15F3C] text-white font-medium whitespace-nowrap shrink-0">
             <span>Export Translation</span>

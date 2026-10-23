@@ -71,3 +71,10 @@
 - 改了哪些文件：前端/适配代码在 1aa9e15，分析阶段无百分比修正在 de39b82；本条和 verification/progress 记录部署证据。原 translator 的源码没有改动。
 - 没做完 / 已知问题：用户确认手动清空文库，保持隐藏、不自动恢复；完整 47 页原 PDF 尚未完成。内置浏览器不能显示独立控制 PDF，Edge 视觉预览受权限限制未验证。其他 Rust 功能边界见 api.md。
 - 下一个接手的人先看：verification.md 最新验收、api.md、frontend-integration-plan.md。最终镜像 sha256:d0d850c12286617b0369639fb828b557b7e0063fbe78b65c803a4e125c454d79；NAS 原文件与缓存仍保留，OpenCode 密钥需用户在 Settings 主动保存。
+
+## 2026-10-23 Codex（About 移除、服务补齐、Dual 命名）
+- 做了什么：按用户要求移除 About 页面/入口/专属下载；Side by Side 可见文案改为 Dual，并同步导出优先级与文件名，Interleaved 保留。服务扩为 20 个配置入口，补 Azure 参数及模型/地址缺失的排队前检查。
+- 改了哪些文件：web/src/、专属公开下载、src/service/ui.rs、profiles.json、ui_tests.rs、translate.rs 的可选空密钥处理、tests/ui_adapter.rs、Docker/CI 与接口/计划文档。
+- 验证：本机 17 项测试和静态生产构建通过；新增本地 HTTP 协议矩阵检查 19 个非 Google 配置的路由/请求/独立密钥，Google 沿用先前实测。浏览器确认 20 个入口、无 About、旧 About 链接回退及 Azure 参数字段。
+- 没做完 / 已知问题：云端发布、NAS 最终部署待本条后的验收；未调用用户付费账户逐家实测。原有 PDF、缓存、密钥、文库隐藏状态保持。
+- 下一个接手的人先看：provider-ui-plan.md、api.md 最新说明。API 的 side_by_side/dual 旧标识不互换，产品名分别是 Dual/Interleaved。

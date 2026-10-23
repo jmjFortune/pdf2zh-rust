@@ -337,7 +337,7 @@ impl Translator {
                     .json(&json!({"model":s.model,"temperature":0,"messages":[
                         {"role":"system","content":format!("Translate from {} to {}. Return only the translation, no explanations, no markdown fences. Preserve all symbols and technical terminology. Preserve every ⟦number⟧ marker exactly once, without changing its number.",s.source,s.target)},
                         {"role":"user","content":text}]}));
-                if let Some(key)=&s.api_key { request=request.bearer_auth(key); }
+                if let Some(key)=s.api_key.as_deref().filter(|key|!key.is_empty()) { request=request.bearer_auth(key); }
                 request.send().await
             },
             "ollama" => {

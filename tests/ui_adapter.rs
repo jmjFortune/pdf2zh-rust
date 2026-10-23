@@ -208,6 +208,16 @@ async fn translator_contract_persists_secrets_privately_and_exports_once() -> Re
             .get(format!("{base}{}", first["files"][kind].as_str().unwrap()))
             .send()
             .await?;
+        let filename_kind = match kind {
+            "side_by_side" => "dual",
+            "dual" => "interleaved",
+            _ => "mono",
+        };
+        assert!(
+            response.headers()["content-disposition"]
+                .to_str()?
+                .ends_with(&format!("-{filename_kind}.pdf\""))
+        );
         assert!(
             response.headers()["content-disposition"]
                 .to_str()?

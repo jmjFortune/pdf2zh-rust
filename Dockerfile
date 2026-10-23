@@ -32,7 +32,11 @@ RUN cargo chef cook --release --locked --recipe-path recipe.json
 COPY --from=resources /bundle/assets /opt/pdf2zh/assets
 ENV PDF2ZH_ASSETS=/opt/pdf2zh/assets \
     ORT_DYLIB_PATH=/opt/pdf2zh/assets/onnxruntime/lib/libonnxruntime.so
-COPY . .
+# Frontend-only edits must not invalidate the native compiler/test layer.
+COPY Cargo.toml Cargo.lock ./
+COPY src/ src/
+COPY tests/ tests/
+COPY assets/manifest.json assets/manifest.json
 RUN cargo build --release --locked && cargo test --release --locked
 
 FROM debian:bookworm-slim AS runtime

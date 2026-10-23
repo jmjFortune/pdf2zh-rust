@@ -7,7 +7,6 @@ import TranslateView from "../components/TranslateView";
 import ReaderView from "../components/ReaderView";
 import LibraryView from "../components/LibraryView";
 import SettingsView from "../components/SettingsView";
-import AboutView from "../components/AboutView";
 import { api } from "../lib/api";
 import { CARING_QUOTES } from "../data/mockData";
 
@@ -60,8 +59,10 @@ export default function Home() {
       const params = new URLSearchParams(window.location.search);
       setPaperId(params.get("paper") || sessionStorage.getItem("pdf2zh.paper"));
       const tab = params.get("tab") || sessionStorage.getItem("pdf2zh.tab");
-      if (tab && ["translate", "reader", "library", "settings", "about"].includes(tab)) {
+      if (tab && ["translate", "reader", "library", "settings"].includes(tab)) {
         setCurrentTab(tab);
+      } else if (tab) {
+        sessionStorage.setItem("pdf2zh.tab", "translate");
       }
     }
   }, []);
@@ -108,7 +109,6 @@ export default function Home() {
 
           {currentTab === "settings" && <SettingsView settings={settings} onSettingsChange={setSettings} loadError={error} onRetry={loadSettings} />}
 
-          {currentTab === "about" && <AboutView />}
         </main>
       </div>
     </div>

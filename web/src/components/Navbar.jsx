@@ -9,7 +9,6 @@ export default function Navbar({ currentTab, onSelectTab, onOpenReader, hasPaper
     reader: "Reader",
     library: "Library",
     settings: "Settings",
-    about: "About",
   };
 
   return (

@@ -11,6 +11,7 @@ export default function SettingsView({ settings, onSettingsChange, loadError, on
   const [clearKey, setClearKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
+  const [providerOptions, setProviderOptions] = useState({});
   const [glossary, setGlossary] = useState([]);
   const [newTermEn, setNewTermEn] = useState("");
   const [newTermZh, setNewTermZh] = useState("");
@@ -33,6 +34,7 @@ export default function SettingsView({ settings, onSettingsChange, loadError, on
     setClearKey(false);
     setBaseUrl(service.base_url || "");
     setSelectedModel(service.model || "");
+    setProviderOptions(service.options || {});
   }, [service]);
 
   useEffect(() => {
@@ -64,7 +66,7 @@ export default function SettingsView({ settings, onSettingsChange, loadError, on
     if (!service || busy) return;
     setBusy(true); setError(""); setSavedNotification(false);
     try {
-      const patch = { id: serviceId, base_url: baseUrl, model: selectedModel };
+      const patch = { id: serviceId, base_url: baseUrl, model: selectedModel, options: providerOptions };
       if (clearKey) patch.api_key = "";
       else if (apiKey.trim()) patch.api_key = apiKey.trim();
       const next = await api.saveSettings({
@@ -144,14 +146,14 @@ export default function SettingsView({ settings, onSettingsChange, loadError, on
               type="password"
               autoComplete="new-password"
               value={apiKey}
-              placeholder={service?.has_key && service?.needs_key ? "Key configured — leave blank to keep" : service?.needs_key ? "Enter API key" : "No API key required"}
-              disabled={!service?.needs_key || busy}
+              placeholder={service?.has_key && (service?.needs_key || service?.api_key_optional) ? "Key configured — leave blank to keep" : service?.needs_key ? "Enter API key" : service?.api_key_optional ? "Optional API key" : "No API key required"}
+              disabled={(!service?.needs_key && !service?.api_key_optional) || busy}
               onChange={(e) => { setApiKey(e.target.value); setClearKey(false); }}
               className="w-full text-sm font-mono bg-[#FAF9F5] border border-[#DCD6C9] rounded-xl px-3 py-2 text-[#1F1E1D] focus:outline-none focus:ring-1 focus:ring-[#D97757]"
             />
           </div>
 
-          {service?.needs_key && service?.has_key && <button type="button" disabled={busy} onClick={() => { setClearKey((value) => !value); setApiKey(""); }} className="text-xs text-[#78716A] underline">{clearKey ? "Keep stored key" : "Remove stored key on save"}</button>}
+          {(service?.needs_key || service?.api_key_optional) && service?.has_key && <button type="button" disabled={busy} onClick={() => { setClearKey((value) => !value); setApiKey(""); }} className="text-xs text-[#78716A] underline">{clearKey ? "Keep stored key" : "Remove stored key on save"}</button>}
           <div className="space-y-1.5">
             <label className="text-xs text-[#78716A] font-medium" htmlFor="settings-url">API Base URL</label>
             <input
@@ -165,18 +167,24 @@ export default function SettingsView({ settings, onSettingsChange, loadError, on
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs text-[#78716A] font-medium" htmlFor="settings-model">Default Model</label>
+          {service?.requires_model && <div className="space-y-1.5">
+            <label className="text-xs text-[#78716A] font-medium" htmlFor="settings-model">{serviceId === "azure-openai" ? "Deployment Name" : "Default Model"}</label>
             <input
               id="settings-model"
               type="text"
               value={selectedModel}
               disabled={busy}
-              placeholder={service?.default_model || "Provider default"}
+              placeholder={service?.default_model || "Enter an available model ID"}
               onChange={(e) => setSelectedModel(e.target.value)}
               className="w-full text-sm bg-[#FAF9F5] border border-[#DCD6C9] rounded-xl px-3 py-2 text-[#1F1E1D] focus:outline-none focus:ring-1 focus:ring-[#D97757]"
             />
-          </div>
+          </div>}
+          {(service?.option_fields || []).map((field) => <div key={field.key} className="space-y-1.5">
+            <label className="text-xs text-[#78716A] font-medium" htmlFor={`settings-${field.key}`}>{field.label}</label>
+            <input id={`settings-${field.key}`} type="text" value={providerOptions[field.key] || ""} disabled={busy}
+              placeholder={field.default || ""} onChange={(e) => setProviderOptions((current) => ({...current, [field.key]: e.target.value}))}
+              className="w-full text-sm font-mono bg-[#FAF9F5] border border-[#DCD6C9] rounded-xl px-3 py-2 text-[#1F1E1D] focus:outline-none focus:ring-1 focus:ring-[#D97757]" />
+          </div>)}
         </div>
       )}
 

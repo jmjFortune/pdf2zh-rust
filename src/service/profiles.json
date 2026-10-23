@@ -1,0 +1,254 @@
+[
+  {
+    "id": "google",
+    "name": "Google",
+    "provider": "google",
+    "needs_key": false,
+    "api_key_optional": false,
+    "requires_model": false,
+    "default_base_url": "",
+    "default_model": "",
+    "note": "Public translation endpoint; network access and rate limits apply.",
+    "option_fields": []
+  },
+  {
+    "id": "openai",
+    "name": "OpenAI Compatible",
+    "provider": "openai",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": true,
+    "default_base_url": "https://api.openai.com/v1",
+    "default_model": "gpt-4o-mini",
+    "note": "OpenAI or another compatible endpoint. Configure its base URL and an available model.",
+    "option_fields": []
+  },
+  {
+    "id": "opencode-go",
+    "name": "OpenCode Go",
+    "provider": "openai",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": true,
+    "default_base_url": "https://opencode.ai/inference/go/openai/v1",
+    "default_model": "deepseek-v4.1-flash",
+    "note": "",
+    "option_fields": []
+  },
+  {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "provider": "openai",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": true,
+    "default_base_url": "https://api.deepseek.com",
+    "default_model": "",
+    "note": "Set a model ID available to your account, for example deepseek-flash.",
+    "option_fields": []
+  },
+  {
+    "id": "gemini",
+    "name": "Gemini",
+    "provider": "openai",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": true,
+    "default_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "default_model": "",
+    "note": "Use a Gemini API key and a model ID available in Google AI Studio.",
+    "option_fields": []
+  },
+  {
+    "id": "zhipu",
+    "name": "Zhipu",
+    "provider": "openai",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": true,
+    "default_base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "default_model": "",
+    "note": "Use a BigModel API key and an available model ID.",
+    "option_fields": []
+  },
+  {
+    "id": "silicon",
+    "name": "SiliconFlow",
+    "provider": "openai",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": true,
+    "default_base_url": "https://api.siliconflow.cn/v1",
+    "default_model": "",
+    "note": "Select a model available in your SiliconFlow account. The endpoint can be changed for another region.",
+    "option_fields": []
+  },
+  {
+    "id": "modelscope",
+    "name": "ModelScope",
+    "provider": "openai",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": true,
+    "default_base_url": "https://api-inference.modelscope.cn/v1",
+    "default_model": "",
+    "note": "Use a ModelScope access token and the full model ID, including its organization prefix.",
+    "option_fields": []
+  },
+  {
+    "id": "qwen",
+    "name": "Qwen / Model Studio",
+    "provider": "openai",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": true,
+    "default_base_url": "",
+    "default_model": "",
+    "note": "Paste your workspace OpenAI-compatible base URL and model ID from Model Studio.",
+    "option_fields": []
+  },
+  {
+    "id": "hunyuan",
+    "name": "Tencent Hunyuan",
+    "provider": "openai",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": true,
+    "default_base_url": "https://api.hunyuan.cloud.tencent.com/v1",
+    "default_model": "",
+    "note": "Use the OpenAI-compatible endpoint and model available to your account. This is Hunyuan, not Tencent Machine Translation.",
+    "option_fields": []
+  },
+  {
+    "id": "groq",
+    "name": "Groq",
+    "provider": "openai",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": true,
+    "default_base_url": "https://api.groq.com/openai/v1",
+    "default_model": "",
+    "note": "Choose a currently available Groq model ID.",
+    "option_fields": []
+  },
+  {
+    "id": "grok",
+    "name": "Grok / xAI",
+    "provider": "openai",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": true,
+    "default_base_url": "https://api.x.ai/v1",
+    "default_model": "",
+    "note": "Choose a model supporting Chat Completions in your xAI account.",
+    "option_fields": []
+  },
+  {
+    "id": "ollama",
+    "name": "Ollama",
+    "provider": "ollama",
+    "needs_key": false,
+    "api_key_optional": false,
+    "requires_model": true,
+    "default_base_url": "http://host.docker.internal:11434",
+    "default_model": "qwen3:8b",
+    "note": "The selected model must already be installed on your Ollama server.",
+    "option_fields": []
+  },
+  {
+    "id": "xinference",
+    "name": "Xinference",
+    "provider": "openai",
+    "needs_key": false,
+    "api_key_optional": true,
+    "requires_model": true,
+    "default_base_url": "http://host.docker.internal:9997/v1",
+    "default_model": "",
+    "note": "Enter the launched model UID. Supply an optional API key if your server enables authentication.",
+    "option_fields": []
+  },
+  {
+    "id": "deepl",
+    "name": "DeepL",
+    "provider": "deepl",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": false,
+    "default_base_url": "",
+    "default_model": "",
+    "note": "Leave the URL blank to select DeepL Free or Pro from the key type.",
+    "option_fields": []
+  },
+  {
+    "id": "deeplx",
+    "name": "DeepLX",
+    "provider": "deeplx",
+    "needs_key": false,
+    "api_key_optional": false,
+    "requires_model": false,
+    "default_base_url": "http://host.docker.internal:1188",
+    "default_model": "",
+    "note": "",
+    "option_fields": []
+  },
+  {
+    "id": "azure-openai",
+    "name": "Azure OpenAI",
+    "provider": "azureopenai",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": true,
+    "default_base_url": "",
+    "default_model": "",
+    "note": "Base URL: Azure resource root. Model: deployment name, not the underlying model name.",
+    "option_fields": [
+      {
+        "key": "api_version",
+        "label": "API Version",
+        "default": "2024-10-21"
+      }
+    ]
+  },
+  {
+    "id": "azure",
+    "name": "Azure Translator",
+    "provider": "azure",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": false,
+    "default_base_url": "https://api.translator.azure.cn",
+    "default_model": "",
+    "note": "Set your resource endpoint and region. Change both when using a different Azure region.",
+    "option_fields": [
+      {
+        "key": "region",
+        "label": "Region",
+        "default": "chinaeast2"
+      }
+    ]
+  },
+  {
+    "id": "dify",
+    "name": "Dify",
+    "provider": "dify",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": false,
+    "default_base_url": "",
+    "default_model": "",
+    "note": "Paste the full workflow run URL, ending in /v1/workflows/run. Inputs: text, lang_in, lang_out. Output: text.",
+    "option_fields": []
+  },
+  {
+    "id": "anythingllm",
+    "name": "AnythingLLM",
+    "provider": "anythingllm",
+    "needs_key": true,
+    "api_key_optional": false,
+    "requires_model": false,
+    "default_base_url": "",
+    "default_model": "",
+    "note": "Paste the full workspace chat URL, ending in /api/v1/workspace/{workspace}/chat.",
+    "option_fields": []
+  }
+]

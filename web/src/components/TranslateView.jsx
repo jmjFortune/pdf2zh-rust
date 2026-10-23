@@ -373,7 +373,7 @@ export default function TranslateView({ settings, settingsError, onRetry, onOpen
             <label className="text-xs text-[#78716A] font-medium">Layout Modes (select one or more)</label>
             <div className="grid grid-cols-3 gap-2">
               {[
-                { id: "side_by_side", label: "Side by Side" },
+                { id: "side_by_side", label: "Dual" },
                 { id: "dual", label: "Interleaved" },
                 { id: "mono", label: "Mono" },
               ].map((l) => (

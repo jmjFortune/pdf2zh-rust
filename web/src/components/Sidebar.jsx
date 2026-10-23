@@ -5,8 +5,7 @@ import {
   Languages,
   BookOpen,
   Library,
-  Settings,
-  Info
+  Settings
 } from "lucide-react";
 
 export default function Sidebar({ currentTab, onSelectTab, caringQuote, statusLabel, ready }) {
@@ -15,7 +14,6 @@ export default function Sidebar({ currentTab, onSelectTab, caringQuote, statusLa
     { id: "reader", label: "Reader", icon: BookOpen },
     { id: "library", label: "Library", icon: Library },
     { id: "settings", label: "Settings", icon: Settings },
-    { id: "about", label: "About", icon: Info },
   ];
 
   return (

@@ -72,7 +72,12 @@ jobs:
             sleep 1
           done
           jq -e '.status == "ok" and .engine == "rust"' "$SMOKE_DIR/health.json"
-          curl --fail --silent http://127.0.0.1:17861/ | grep -q 'Translate Paper'
+          curl --fail --silent http://127.0.0.1:17861/ > "$SMOKE_DIR/index.html"
+          grep -q 'Translate Paper' "$SMOKE_DIR/index.html"
+          grep -q '>Dual<' "$SMOKE_DIR/index.html"
+          if grep -q '>About<' "$SMOKE_DIR/index.html"; then exit 1; fi
+          curl --fail --silent http://127.0.0.1:17861/api/ui/settings > "$SMOKE_DIR/settings.json"
+          jq -e '(.services | length) == 20' "$SMOKE_DIR/settings.json"
           test "$(docker exec pdf2zh-smoke id -u)" = 10001
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
