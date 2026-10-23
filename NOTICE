@@ -1,0 +1,20 @@
+pdf2zh-rust is an independent Rust application. It is not an official PDFMathTranslate-next release.
+
+Upstream behavior and asset metadata reference:
+PDFMathTranslate-next / PDFMathTranslate-next (AGPL-3.0)
+https://github.com/PDFMathTranslate-next/PDFMathTranslate-next
+funstory-ai / BabelDOC (AGPL-3.0)
+https://github.com/funstory-ai/BabelDOC
+
+The runtime uses MuPDF through the mupdf Rust crate (AGPL-3.0), and ONNX Runtime through ort (MIT or Apache-2.0 binding; native ONNX Runtime MIT).
+https://github.com/ArtifexSoftware/mupdf
+https://github.com/messense/mupdf-rs
+https://github.com/microsoft/onnxruntime
+https://github.com/pykeio/ort
+
+Resource files are not included in this Git repository. Prepared bundles contain the selected DocLayout-YOLO model and Source Han Serif font as separate assets. Their upstream notices and licenses remain applicable:
+https://github.com/opendatalab/DocLayout-YOLO
+https://github.com/adobe-fonts/source-han-serif
+https://github.com/funstory-ai/BabelDOC-Assets
+
+Cargo.lock records Rust dependency versions. Local verification artifacts, PDFs, credentials and native binaries are excluded from version control.

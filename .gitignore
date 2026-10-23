@@ -1,0 +1,11 @@
+/target/
+/artifacts/
+/data/
+/dist/
+/assets/*
+!/assets/manifest.json
+.env
+*.onnx
+*.dylib
+*.so
+*.so.*

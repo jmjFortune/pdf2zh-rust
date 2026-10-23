@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "assets": [
+    {
+      "name": "SourceHanSerifCN-Regular.ttf",
+      "directory": "fonts",
+      "sha3_256": "c8bf74da2c3b7457c9d887465b42fb6f80d3d84f361cfe5b0673a317fb1f85ad",
+      "url": "https://raw.githubusercontent.com/funstory-ai/BabelDOC-Assets/refs/heads/main/fonts/SourceHanSerifCN-Regular.ttf"
+    },
+    {
+      "name": "doclayout_yolo_docstructbench_imgsz1024.onnx",
+      "directory": "models",
+      "sha3_256": "60be061226930524958b5465c8c04af3d7c03bcb0beb66454f5da9f792e3cf2a",
+      "url": "https://huggingface.co/wybxc/DocLayout-YOLO-DocStructBench-onnx/resolve/main/doclayout_yolo_docstructbench_imgsz1024.onnx?download=true"
+    }
+  ],
+  "onnx_runtime_api_minimum": 23,
+  "provenance": "Model/font SHA3-256 values from BabelDOC 0.6.2 embedding_assets_metadata.py"
+}
