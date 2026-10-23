@@ -60,3 +60,5 @@
 ## 2026-10-23 HTTP 400 / misleading late progress investigation
 - NAS failed task reports translate page 1/47, zero completed blocks; one shared cache row belongs to the earlier smoke task. User confirms API key was supplied. Input PDF retained; terminal job.json and provider response body were deleted by old behavior, so the exact rejection reason is not yet known.
 - Fix in progress: translate first selected page before analyzing remainder, label analysis as its own phase, bounded/redacted provider errors and selective retry, retry using retained input and explicitly supplied settings. Verify with rejecting mock provider and real worker lifecycle, then cloud-build/deploy while idle. Real OpenCode validation requires the user's key to be re-entered in the UI; do not request keys in chat.
+
+- Completed local/cloud checks and NAS upgrade to verified source 80d499b/digest d916e2f…; original records/input hashes retained. NAS mock-error/retry regression passed (56.48 s), browser retry UI verified. Real OpenCode request and original 47-page translation await re-entered user credentials; do not claim them completed.

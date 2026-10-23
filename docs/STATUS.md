@@ -38,3 +38,7 @@
 - 验证：cargo fmt --check、cargo test --locked -j 2（7 单元 + 4 PDF + 1 进程生命周期，共 12 项）、release build、浏览器脚本语法和 git diff --check 通过。将 engine/translate 临时还原 HEAD 后新生命周期测试确实失败，随后恢复修复并跑完整套通过。
 - 没做完 / 已知问题：原 HTTP 错误体被旧版丢弃，Key 也按原设计清除；缺少 OpenCode session 是有文档与官方仓库同类 400 报告支持的候选原因，未用用户 Key 实际确认。云端构建及 NAS 升级待下续验证。重试是利用段落缓存重新生成，尚无部分 PDF/逐页检查点，不声称可恢复此前未生成的译文。
 - 下一个接手的人先看：docs/verification.md 和 docs/api.md；保持旧失败记录/输入，不从无关应用提取 Key，不把 Key 发聊天，不在 Mac 拉 Docker。NAS 升级只在无活跃任务时操作 Rust 容器并保留原卷。
+
+- 后续云端/NAS 验证：Actions 39916128410 全部成功，Linux 同样 12 项测试和最终容器检查通过；镜像 digest d916e2f53f107e47e3b8cdb9b58e3d2ff1fc36355d2bb69699a0a644654aaa48 已在 NAS 拉取、校验 revision 80d499b 并在无活跃任务时升级，容器 healthy。原三条任务记录逐字段不变、所有原输入 SHA256 不变、数据卷名称保持。
+- NAS 原生 worker/HTTP 回归：私有局域网 mock 返回单次 HTTP 400，保留结构化原因且 Key 被脱敏；复用保留输入重试产生新的 completed 任务，PDF 下载通过，旧失败记录仍在，两个私有 job.json 均被删除，合计 56.48 秒。该验证服务明确是本地 mock，不能写成真实 OpenCode 联调成功。
+- 网页已核对原用户任务：显示 translate 1/47、0 段及重试入口；在保留的浏览器页预填用户截图里的服务地址和模型，API Key 留空。用户须在页面重填 Key 后点重试，才能确认 OpenCode 的真实拒绝是否消除并开始原文翻译。尚未自动重跑用户整份 PDF。
