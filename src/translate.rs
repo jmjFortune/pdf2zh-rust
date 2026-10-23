@@ -41,6 +41,7 @@ pub struct Translator {
     cache: Connection,
     last_request: Option<std::time::Instant>,
     session: String,
+    cache_only: bool,
 }
 
 #[derive(Debug)]
@@ -165,6 +166,7 @@ impl Translator {
             cache,
             last_request: None,
             session: uuid::Uuid::new_v4().to_string(),
+            cache_only: std::env::var_os("PDF2ZH_CACHE_ONLY").is_some(),
         })
     }
 
@@ -189,6 +191,10 @@ impl Translator {
             self.cache
                 .execute("DELETE FROM translations WHERE key=?1", [&key])?;
         }
+        ensure!(
+            !self.cache_only,
+            "translation is not cached; cache-only recovery makes no network requests"
+        );
         let mut text = original.to_owned();
         let mut terms = self.settings.glossary.iter().collect::<Vec<_>>();
         terms.sort_by_key(|(k, _)| std::cmp::Reverse(k.len()));
@@ -463,6 +469,56 @@ fn chunks(text: &str, max_chars: usize) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn cache_only_recovery_makes_no_new_provider_requests() -> Result<()> {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let app = axum::Router::new().route(
+            "/chat/completions",
+            axum::routing::post(move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+                async { axum::Json(json!({"choices":[{"message":{"content":"中文译文"}}]})) }
+            }),
+        );
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let tmp = tempfile::tempdir()?;
+        let mut translator = Translator::new(
+            TranslationSettings {
+                provider: "openai".into(),
+                base_url: url,
+                model: "cache-contract".into(),
+                ..Default::default()
+            },
+            &tmp.path().join("cache.sqlite3"),
+        )?;
+        assert_eq!(
+            translator.translate("original paragraph").await?,
+            "中文译文"
+        );
+        translator.cache_only = true;
+        assert_eq!(
+            translator.translate("original paragraph").await?,
+            "中文译文"
+        );
+        assert!(
+            translator
+                .translate("uncached paragraph")
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("cache-only")
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        server.abort();
+        Ok(())
+    }
+
     #[tokio::test]
     async fn provider_errors_are_bounded_redacted_and_retry_only_transient_statuses() -> Result<()>
     {

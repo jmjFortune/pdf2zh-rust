@@ -62,3 +62,7 @@
 - Fix in progress: translate first selected page before analyzing remainder, label analysis as its own phase, bounded/redacted provider errors and selective retry, retry using retained input and explicitly supplied settings. Verify with rejecting mock provider and real worker lifecycle, then cloud-build/deploy while idle. Real OpenCode validation requires the user's key to be re-entered in the UI; do not request keys in chat.
 
 - Completed local/cloud checks and NAS upgrade to verified source 80d499b/digest d916e2f…; original records/input hashes retained. NAS mock-error/retry regression passed (56.48 s), browser retry UI verified. Real OpenCode request and original 47-page translation await re-entered user credentials; do not claim them completed.
+
+## 2026-10-23 font recovery in progress
+- Real task failed at page 32/47, 510 translated blocks, missing primary-font U+2023. NAS cache snapshot contains 512 rows and two translated values with U+2023; backup saved before changes.
+- Scoped repair: select a validated mature fallback font only for paragraphs unsupported by the primary font; same bytes used for measurement and output, preserve exact Unicode. Add cache-only recovery path to prevent re-requesting cached content. Verify missing-glyph rich-formula regression, then cloud build/deploy. Recover prior pages using a private local copy of the user's NAS input/cache and existing local model; do not transmit the PDF to any new service or put data in Git.

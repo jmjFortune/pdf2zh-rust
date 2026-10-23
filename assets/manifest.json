@@ -8,6 +8,12 @@
       "url": "https://raw.githubusercontent.com/funstory-ai/BabelDOC-Assets/refs/heads/main/fonts/SourceHanSerifCN-Regular.ttf"
     },
     {
+      "name": "GoNotoKurrent-Regular.ttf",
+      "directory": "fonts",
+      "sha3_256": "4324a60d507c691e6efc97420647f4d2c2d86d9de35009d1c769861b76074ae6",
+      "url": "https://raw.githubusercontent.com/funstory-ai/BabelDOC-Assets/1eeeec2a63b05fe6fe7a1f45f0955a8fa98793c4/fonts/GoNotoKurrent-Regular.ttf"
+    },
+    {
       "name": "doclayout_yolo_docstructbench_imgsz1024.onnx",
       "directory": "models",
       "sha3_256": "60be061226930524958b5465c8c04af3d7c03bcb0beb66454f5da9f792e3cf2a",
@@ -37,8 +43,13 @@
       "name": "DocLayout-YOLO-LICENSE",
       "url": "https://raw.githubusercontent.com/opendatalab/DocLayout-YOLO/fd3f15cff5c3d46ce465f0d2c480b2ebf329637c/LICENSE",
       "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
+    },
+    {
+      "name": "GoNotoKurrent-OFL.txt",
+      "url": "https://raw.githubusercontent.com/notofonts/latin-greek-cyrillic/0ef94805d19e98ed658543a7c48c0a4f19cc0ac0/OFL.txt",
+      "sha256": "cee9892f9f0cc8fe882c9e9537ee6a89621d86ee7ceaf70b02e2b2b1c25c061a"
     }
   ],
   "onnx_runtime_api_minimum": 23,
-  "provenance": "Model/font SHA3-256 values from BabelDOC 0.6.2 embedding_assets_metadata.py"
+  "provenance": "Model/font SHA3-256 values from BabelDOC 0.6.2 embedding_assets_metadata.py; GoNotoKurrent blob verified against BabelDOC-Assets commit 1eeeec2a63b05fe6fe7a1f45f0955a8fa98793c4"
 }

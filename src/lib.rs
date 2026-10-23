@@ -1,5 +1,6 @@
 pub mod analysis;
 pub mod engine;
+pub mod fonts;
 pub mod layout;
 pub mod pdf;
 pub mod resources;

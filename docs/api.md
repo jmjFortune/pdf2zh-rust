@@ -67,3 +67,17 @@ HTTP errors retain bounded structured `error.type`, `error.code` and `error.mess
 OpenAI-compatible requests identify this application honestly as `pdf2zh-rust/<version>` and send a stable random `x-opencode-session` for the current worker's translation session, as required by [OpenCode Go's client documentation](https://dev.opencode.ai/v2/docs/console/go#where-can-i-use-it). This does not impersonate a coding client or guarantee Go accepts PDF translation traffic.
 
 Retry JSON uses the same fields as upload `options`. It creates a new UUID/history record and hard-links (or copies) the retained immutable input; the original failure stays intact. The caller must explicitly provide all desired settings again, including API key/password when needed. The web button says it uses the current form settings. No key is restored from history, stored in browser persistence, or returned by this API. Valid per-paragraph translation cache entries remain reusable when all cache-key settings match. This is a cached re-run, not a saved partially translated PDF or an automatic resume at the previous page.
+
+## Fonts and cache-only recovery
+
+Worker output keeps the primary CJK font for paragraphs it covers, and lazily
+selects GoNotoKurrent for a paragraph containing unsupported characters. The same
+selected font bytes are used for measurement, fitting and writing, for both plain
+text and text around protected formulas. Formula placeholders are not visible
+font characters. Unsupported visible characters in both fonts still produce an
+explicit error instead of silently dropping text or changing Unicode.
+
+`PDF2ZH_CACHE_ONLY=1` on a CLI/worker process permits validated cache hits and
+rejects a missing cache entry before any provider request. It does not change
+cache keys, providers, or translate missing content. Use it for offline recovery;
+do not set it globally on a service intended to translate new content.

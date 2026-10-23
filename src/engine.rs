@@ -1,5 +1,5 @@
 use crate::{
-    pdf, resources,
+    pdf,
     translate::{TranslationSettings, Translator},
     types::{Bounds, Glyph, LayoutRegion, PageText},
     typeset::{self, Content, MathFragment},
@@ -77,7 +77,7 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
     let total = doc.page_count()? as usize;
     ensure!(total > 0, "input PDF has no pages");
     let selected = page_selection(&config.pages, total)?;
-    let font = resources::font_bytes()?;
+    let mut fonts = crate::fonts::OutputFonts::load()?;
     let mut translator = Translator::new(
         config.translation.clone(),
         &config
@@ -161,9 +161,10 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
             if translated.trim() == unit.text.trim() {
                 continue;
             }
+            let font = fonts.for_text(&translated)?;
             check_cancel(&config.data_dir)?;
             if !unit.math.is_empty() {
-                let output_font = mupdf::Font::from_bytes("translation", &font)?;
+                let output_font = mupdf::Font::from_bytes("translation", font)?;
                 let plan = typeset::fit(
                     &translated,
                     &unit.math,
@@ -203,7 +204,7 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
                             &mut page,
                             mupdf::Point::new(item.x, item.baseline),
                             &text,
-                            &font,
+                            font,
                             plan.size,
                             unit.color,
                         )?;
@@ -230,7 +231,7 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
                 &mut page,
                 &unit,
                 &translated,
-                &font,
+                font,
                 config.min_font_size,
             )?;
             pdf::remove_text(&mut page, &unit.glyphs)?;
@@ -239,7 +240,7 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
                 &mut page,
                 unit.bounds,
                 &translated,
-                &font,
+                font,
                 fitted,
                 fitted,
                 unit.color,

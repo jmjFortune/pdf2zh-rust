@@ -85,3 +85,15 @@ as documented in `verification.md`.
 The Dockerfile can be built by another Linux builder with `docker buildx build
 --platform linux/amd64 --load -t pdf2zh-rust:local .`. Docker builds and image
 downloads have not been performed on the development Mac.
+
+## Font repair image target
+
+The cloud workflow currently uses `runtime-patch`. It compiles/tests the current
+source and reuses the pinned, previously verified runtime/model image, adding the
+GoNotoKurrent fallback font, OFL notice, current manifest and current native binary.
+This keeps NAS repair downloads small instead of replacing unchanged model layers.
+The complete Debian-based image remains available as `--target runtime`. Rebase
+the pinned repair image or switch the workflow back to `runtime` when changing
+native runtime dependencies, the base system, model, or primary font; do not keep
+using the patch baseline indefinitely for those changes. Final resource hashes,
+real inference, service, UID checks still run on the exact image published.

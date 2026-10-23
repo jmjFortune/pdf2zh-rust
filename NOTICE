@@ -17,4 +17,9 @@ https://github.com/opendatalab/DocLayout-YOLO
 https://github.com/adobe-fonts/source-han-serif
 https://github.com/funstory-ai/BabelDOC-Assets
 
+GoNotoKurrent-Regular is a fallback font from satbyy/go-noto-universal,
+distributed under SIL Open Font License 1.1. Copyright and license text are
+embedded in its TrueType name table (IDs 0, 13, 14).
+https://github.com/satbyy/go-noto-universal
+
 Cargo.lock records Rust dependency versions. Local verification artifacts, PDFs, credentials and native binaries are excluded from version control.

@@ -49,3 +49,15 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl --fail --silent http://127.0.0.1:7861/api/health || exit 1
 ENTRYPOINT ["/usr/local/bin/pdf2zh-rust"]
 CMD ["serve", "--listen", "0.0.0.0:7861", "--data-dir", "/data"]
+
+# Repair images reuse the already verified NAS runtime/model layers. Native code
+# is still compiled and tested above; only its binary and the new font are added.
+# Rebase this pinned runtime (or build --target runtime) for base/model changes.
+FROM ghcr.io/jmjfortune/pdf2zh-rust@sha256:d916e2f53f107e47e3b8cdb9b58e3d2ff1fc36355d2bb69699a0a644654aaa48 AS runtime-patch
+COPY --from=resources /bundle/assets/fonts/GoNotoKurrent-Regular.ttf /opt/pdf2zh/assets/fonts/
+COPY --from=resources /bundle/assets/licenses/GoNotoKurrent-OFL.txt /opt/pdf2zh/assets/licenses/
+COPY assets/manifest.json /opt/pdf2zh/assets/manifest.json
+COPY LICENSE NOTICE /opt/pdf2zh/
+COPY --from=builder /build/target/release/pdf2zh-rust /usr/local/bin/pdf2zh-rust
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.revision="$VCS_REF"

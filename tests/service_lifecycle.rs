@@ -99,9 +99,9 @@ async fn upload_download_failure_and_cancellation_use_real_worker_processes() ->
                     .unwrap_or("")
                     .contains('⟦')
                 {
-                    "编码器由⟦0⟧组成。"
+                    "‣ 编码器由⟦0⟧组成。"
                 } else {
-                    "你好，世界。这是契约测试译文。"
+                    "你好，世界。‣ 这是契约测试译文。"
                 };
                 axum::Json(json!({"choices":[{"message":{"content":text}}]})).into_response()
             }
@@ -224,6 +224,10 @@ async fn upload_download_failure_and_cancellation_use_real_worker_processes() ->
             .map(|b| b.text())
             .collect::<String>();
         assert!(text.contains("你好"));
+        assert!(
+            text.contains('‣'),
+            "fallback bullet must remain searchable: {text}"
+        );
         assert!(text.contains("E = mc2"));
     }
     let rich_input = tmp.path().join("inline.pdf");
@@ -288,6 +292,10 @@ async fn upload_download_failure_and_cancellation_use_real_worker_processes() ->
             .map(|b| b.text())
             .collect::<String>();
         assert!(text.contains("编码器"), "{text}");
+        assert!(
+            text.contains('‣'),
+            "fallback bullet next to formula was lost: {text}"
+        );
         let before = text.find('由').unwrap();
         let formula = text
             .find('α')
