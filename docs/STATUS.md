@@ -94,3 +94,9 @@
 - 下一个接手的人先看：inline-reader-plan.md、verification.md 与 api.md 最新边界；工作目录已移至 Desktop/projects/pdf2zh-rust，私有 mock/原 PDF 均在忽略的 artifacts 下。
 
 - 后续：云端 Actions 40086728911 全部通过并发布 digest 1af635e9…（源码 2d0ff61）；临时经已有代理恢复过 NAS SSH/HTTP，看到10条终态任务，无活动任务。NAS 拉取进行中连接再次断开，尚未执行 compose 切换；等待重新连通后确认镜像和空闲状态，不能宣称已部署。
+
+## 2026-10-24 Codex（公式/代码/阅读器修复已部署）
+- 做了什么：连接恢复后确认 NAS 已完整持有 2d0ff61 镜像；使用独立于 SSH 会话的升级进程完成空闲更新。健康，固定 digest 1af635e9b07c37bce6424e8b64a6010fb6ab5fd2bc0b94ec023224da6ede208e。
+- 验证：10 条任务逐字段保持、全部输入 SHA256 不变、原命名数据卷保留、私有设置文件哈希不变。线上 PDF.js worker、WASM 和含方向键阅读器的构建块逐项与本机生产构建 SHA256 相同，MIME 正确。23 项本机/云端测试通过。
+- 没做完 / 已知问题：旧完成的 47 页产物没有被替换；需重新生成才能应用排版修正。此次只用本地 mock 复验几何，没有自动调用付费翻译服务。新阅读器在本机实际显示和四方向键已验证；部署后的浏览器工具已不可用，线上资源一致性由 HTTP 哈希验证，未声称再次目视操作 NAS 页面。
+- 下一个接手的人先看：inline-reader-plan.md、verification.md 与 private artifacts/nas-deployment-record.json。临时测试服务已结束；沿用既有代理的临时 SSH CONNECT，不修改任何网络配置。
