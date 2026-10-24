@@ -23,3 +23,7 @@ embedded in its TrueType name table (IDs 0, 13, 14).
 https://github.com/satbyy/go-noto-universal
 
 Cargo.lock records Rust dependency versions. Local verification artifacts, PDFs, credentials and native binaries are excluded from version control.
+
+The browser reader bundles Mozilla PDF.js (pdfjs-dist), Apache License 2.0.
+Its worker/resources/license are prepared from the pinned npm package at build time.
+https://github.com/mozilla/pdf.js

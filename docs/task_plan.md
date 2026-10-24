@@ -33,3 +33,6 @@
 ## 当前完成状态
 
 设计已批准，本机与 NAS 开发版可运行，完整上游替代仍实施中。已验证路径与内存口径见 verification.md；NAS 单页 smoke 实测不替代上游同输入对照，不能宣称整个重写或全面峰值目标已经达成。
+
+## 2026-10-23 formula/code/reader follow-up
+User reported inline formula overlap and a cramped PDF viewer; investigate and repair in the independent Rust repo. Focused steps in inline-reader-plan.md; current phase: root-cause reproduction.

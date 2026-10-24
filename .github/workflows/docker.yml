@@ -78,6 +78,8 @@ jobs:
           if grep -q '>About<' "$SMOKE_DIR/index.html"; then exit 1; fi
           curl --fail --silent http://127.0.0.1:17861/api/ui/settings > "$SMOKE_DIR/settings.json"
           jq -e '(.services | length) == 20' "$SMOKE_DIR/settings.json"
+          curl --fail --silent --head http://127.0.0.1:17861/pdfjs/pdf.worker.min.mjs | grep -qi 'content-type: application/javascript'
+          curl --fail --silent --head http://127.0.0.1:17861/pdfjs/wasm/openjpeg.wasm | grep -qi 'content-type: application/wasm'
           test "$(docker exec pdf2zh-smoke id -u)" = 10001
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'

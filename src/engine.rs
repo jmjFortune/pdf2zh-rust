@@ -1,7 +1,7 @@
 use crate::{
     pdf,
     translate::{TranslationSettings, Translator},
-    types::{Bounds, Glyph, LayoutRegion, PageText},
+    types::{Bounds, Glyph, LayoutRegion, PageText, TextBlock, TextLine},
     typeset::{self, Content, MathFragment},
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -187,14 +187,19 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
                 )?;
                 let mut forms = Vec::new();
                 for formula in &unit.math {
-                    forms.push(pdf::formula_form(
+                    forms.push(pdf::fragment_form(
                         &mut doc,
                         &original,
                         index,
                         formula.bounds,
+                        &formula.glyphs,
                     )?);
                 }
                 pdf::remove_text(&mut page, &unit.glyphs)?;
+                pdf::remove_fragment_paths(
+                    &mut page,
+                    &unit.math.iter().map(|f| f.bounds).collect::<Vec<_>>(),
+                )?;
                 let mut ordered: Vec<typeset::Placement> = Vec::new();
                 for item in &plan.items {
                     if let Content::Text(text) = &item.content {
@@ -398,6 +403,7 @@ fn protected(g: &Glyph, regions: &[LayoutRegion]) -> bool {
     .iter()
     .any(|s| name.contains(s));
     math_font
+        || code_font(&g.font)
         || regions.iter().any(|r| {
             ["isolate_formula", "figure", "table", "abandon"].contains(&r.label.as_str())
                 && r.bounds.contains_center(g.bounds)
@@ -406,13 +412,19 @@ fn protected(g: &Glyph, regions: &[LayoutRegion]) -> bool {
 
 fn translation_units(page: &PageText, regions: &[LayoutRegion]) -> Vec<Unit> {
     let mut units = Vec::new();
-    for block in &page.blocks {
+    let blocks = paragraph_blocks(page, regions);
+    for block in &blocks {
         let all = block
             .lines
             .iter()
             .flat_map(|l| l.glyphs.iter())
             .collect::<Vec<_>>();
-        if all.is_empty() {
+        if all.is_empty()
+            || all
+                .iter()
+                .filter(|g| !g.text.is_whitespace())
+                .all(|g| code_font(&g.font))
+        {
             continue;
         }
         let non_text = all
@@ -441,14 +453,13 @@ fn translation_units(page: &PageText, regions: &[LayoutRegion]) -> Vec<Unit> {
                         .map(|g| g.bounds)
                         .reduce(Bounds::union)
                         .unwrap();
-                    let baseline = glyphs
-                        .iter()
-                        .max_by(|a, b| a.size.total_cmp(&b.size))
-                        .unwrap()
-                        .origin[1]
-                        - bounds.y0;
+                    let baseline = line_baseline(line, regions) - bounds.y0;
                     text.push_str(&format!("⟦{}⟧", math.len()));
-                    math.push(MathFragment { bounds, baseline });
+                    math.push(MathFragment {
+                        bounds,
+                        baseline,
+                        glyphs: glyphs.to_vec(),
+                    });
                     index = end;
                 }
                 text.extend(line.glyphs[index..].iter().map(|g| g.text));
@@ -461,8 +472,7 @@ fn translation_units(page: &PageText, regions: &[LayoutRegion]) -> Vec<Unit> {
             let glyphs = all.into_iter().cloned().collect::<Vec<_>>();
             let size = median_size(&glyphs);
             let mut bounds = block.bounds;
-            let below = page
-                .blocks
+            let below = blocks
                 .iter()
                 .filter(|b| {
                     b.bounds.y0 >= bounds.y1 && b.bounds.x0 < bounds.x1 && b.bounds.x1 > bounds.x0
@@ -481,6 +491,160 @@ fn translation_units(page: &PageText, regions: &[LayoutRegion]) -> Vec<Unit> {
         }
     }
     units
+}
+
+// Fractions can split a single visual paragraph into intersecting MuPDF blocks.
+// Join only overlapping pieces (or pieces in the same detected text paragraph),
+// then rebuild rows using prose baselines so superscripts/fractions stay inline.
+fn paragraph_blocks(page: &PageText, regions: &[LayoutRegion]) -> Vec<TextBlock> {
+    let text_region = |b: &TextBlock| {
+        regions
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| {
+                ["plain text", "title"].contains(&r.label.as_str())
+                    && r.bounds.contains_center(b.bounds)
+            })
+            .min_by(|(_, a), (_, b)| {
+                (a.bounds.width() * a.bounds.height())
+                    .total_cmp(&(b.bounds.width() * b.bounds.height()))
+            })
+            .map(|(i, _)| i)
+    };
+    let mut groups: Vec<(TextBlock, Option<usize>)> = Vec::new();
+    for block in &page.blocks {
+        // A layout region may span source code and prose together. Keep entire
+        // monospaced blocks fixed, including their line breaks and indentation.
+        if code_block(block) {
+            groups.push((block.clone(), None));
+            continue;
+        }
+        let mut merged = block.clone();
+        let region = text_region(block);
+        let mut i = 0;
+        while i < groups.len() {
+            let combined = merged.bounds.union(groups[i].0.bounds);
+            let crosses_code = page
+                .blocks
+                .iter()
+                .any(|b| code_block(b) && combined.intersects(b.bounds));
+            if !code_block(&groups[i].0)
+                && !crosses_code
+                && (merged.bounds.intersects(groups[i].0.bounds)
+                    || (region.is_some() && region == groups[i].1))
+            {
+                let (other, _) = groups.remove(i);
+                merged.bounds = merged.bounds.union(other.bounds);
+                merged.lines.extend(other.lines);
+                i = 0; // A new piece may connect two earlier groups.
+            } else {
+                i += 1;
+            }
+        }
+        groups.push((merged, region));
+    }
+    let mut blocks = groups
+        .into_iter()
+        .map(|(mut block, _)| {
+            let glyphs = block
+                .lines
+                .iter()
+                .flat_map(|l| l.glyphs.iter())
+                .cloned()
+                .collect::<Vec<_>>();
+            let size = median_size(&glyphs);
+            let mut baselines: Vec<f32> = Vec::new();
+            for g in &glyphs {
+                if !g.text.is_whitespace()
+                    && !protected(g, regions)
+                    && g.size >= size * 0.8
+                    && !baselines
+                        .iter()
+                        .any(|y| (y - g.origin[1]).abs() < size * 0.25)
+                {
+                    baselines.push(g.origin[1]);
+                }
+            }
+            if baselines.is_empty() {
+                return block;
+            }
+            baselines.sort_by(f32::total_cmp);
+            let mut rows = vec![Vec::new(); baselines.len()];
+            for g in glyphs {
+                let row = baselines
+                    .iter()
+                    .enumerate()
+                    .min_by(|(_, a), (_, b)| {
+                        (*a - g.origin[1])
+                            .abs()
+                            .total_cmp(&(*b - g.origin[1]).abs())
+                    })
+                    .unwrap()
+                    .0;
+                rows[row].push(g);
+            }
+            block.lines = rows
+                .into_iter()
+                .filter(|g| !g.is_empty())
+                .map(|mut glyphs| {
+                    glyphs.sort_by(|a, b| {
+                        (a.origin[0] * 1000.)
+                            .round()
+                            .total_cmp(&(b.origin[0] * 1000.).round())
+                            .then(a.bounds.y0.total_cmp(&b.bounds.y0))
+                    });
+                    TextLine {
+                        bounds: glyphs
+                            .iter()
+                            .map(|g| g.bounds)
+                            .reduce(Bounds::union)
+                            .unwrap(),
+                        glyphs,
+                    }
+                })
+                .collect();
+            block
+        })
+        .collect::<Vec<_>>();
+    blocks.sort_by(|a, b| {
+        a.bounds
+            .y0
+            .total_cmp(&b.bounds.y0)
+            .then(a.bounds.x0.total_cmp(&b.bounds.x0))
+    });
+    blocks
+}
+fn line_baseline(line: &TextLine, regions: &[LayoutRegion]) -> f32 {
+    line.glyphs
+        .iter()
+        .filter(|g| !protected(g, regions) && !g.text.is_whitespace())
+        .max_by(|a, b| a.size.total_cmp(&b.size))
+        .or_else(|| line.glyphs.iter().max_by(|a, b| a.size.total_cmp(&b.size)))
+        .unwrap()
+        .origin[1]
+}
+fn code_block(block: &TextBlock) -> bool {
+    block
+        .lines
+        .iter()
+        .flat_map(|l| &l.glyphs)
+        .filter(|g| !g.text.is_whitespace())
+        .all(|g| code_font(&g.font))
+}
+fn code_font(name: &str) -> bool {
+    let name = name.to_lowercase();
+    [
+        "mono",
+        "courier",
+        "consolas",
+        "menlo",
+        "inconsolata",
+        "sourcecode",
+        "cascadia",
+        "cmtt",
+    ]
+    .iter()
+    .any(|n| name.contains(n))
 }
 
 fn math_ranges(glyphs: &[Glyph], regions: &[LayoutRegion]) -> Vec<(usize, usize)> {
@@ -622,5 +786,184 @@ mod tests {
         assert!(!formula_line(
             "We let x = y and use the following approach."
         ));
+    }
+}
+
+#[cfg(test)]
+mod paragraph_tests {
+    use super::*;
+    use crate::types::{TextBlock, TextLine};
+
+    fn line(text: &str, x: f32, y: f32, size: f32, font: &str) -> TextLine {
+        let glyphs = text
+            .chars()
+            .enumerate()
+            .map(|(i, text)| Glyph {
+                text,
+                bounds: Bounds {
+                    x0: x + i as f32 * size * 0.5,
+                    y0: y - size * 0.8,
+                    x1: x + (i + 1) as f32 * size * 0.5,
+                    y1: y + size * 0.2,
+                },
+                origin: [x + i as f32 * size * 0.5, y],
+                size,
+                font: font.into(),
+                argb: 0xff000000,
+            })
+            .collect::<Vec<_>>();
+        TextLine {
+            bounds: glyphs
+                .iter()
+                .map(|g| g.bounds)
+                .reduce(Bounds::union)
+                .unwrap(),
+            glyphs,
+        }
+    }
+    fn block(lines: Vec<TextLine>) -> TextBlock {
+        TextBlock {
+            bounds: lines
+                .iter()
+                .map(|l| l.bounds)
+                .reduce(Bounds::union)
+                .unwrap(),
+            lines,
+        }
+    }
+    fn page(blocks: Vec<TextBlock>) -> PageText {
+        PageText {
+            index: 0,
+            bounds: Bounds {
+                x0: 0.,
+                y0: 0.,
+                x1: 500.,
+                y1: 700.,
+            },
+            rotation: 0,
+            blocks,
+        }
+    }
+    #[test]
+    fn stacked_fraction_fragments_share_one_paragraph_and_one_formula() {
+        // MuPDF can split a paragraph between the numerator and denominator.
+        let source = page(vec![
+            block(vec![
+                line("The hidden width is ", 50., 100., 10., "Times-Roman"),
+                line("8", 150., 96., 7., "NewCMMath"),
+            ]),
+            block(vec![
+                line("3", 150., 103., 7., "NewCMMath"),
+                line(" times the model width.", 155., 100., 10., "Times-Roman"),
+                line(
+                    "Round it for hardware efficiency.",
+                    50.,
+                    113.,
+                    10.,
+                    "Times-Roman",
+                ),
+            ]),
+        ]);
+        let units = translation_units(&source, &[]);
+        assert_eq!(
+            units.len(),
+            1,
+            "overlapping paragraph pieces must not be typeset independently"
+        );
+        assert_eq!(
+            units[0].math.len(),
+            1,
+            "stacked fraction must stay a single fragment"
+        );
+        assert!(units[0].math[0].bounds.y0 < 91. && units[0].math[0].bounds.y1 > 104.);
+    }
+    #[test]
+    fn paragraph_grouping_cannot_cross_a_standalone_code_block() {
+        let code = block(vec![line("return value", 50., 100., 9., "DejaVuSansMono")]);
+        let bounds = code.bounds;
+        let source = page(vec![
+            block(vec![line("Text above code.", 50., 70., 10., "Times-Roman")]),
+            code,
+            block(vec![line(
+                "Text below code.",
+                50.,
+                140.,
+                10.,
+                "Times-Roman",
+            )]),
+        ]);
+        let regions = vec![LayoutRegion {
+            bounds: Bounds {
+                x0: 40.,
+                y0: 50.,
+                x1: 400.,
+                y1: 160.,
+            },
+            class_id: 1,
+            label: "plain text".into(),
+            confidence: 0.9,
+        }];
+        let units = translation_units(&source, &regions);
+        assert_eq!(units.len(), 2);
+        assert!(
+            units.iter().all(|u| !u.bounds.intersects(bounds)),
+            "prose layout must not cover preserved code"
+        );
+    }
+    #[test]
+    fn ligature_roundoff_preserves_source_character_order() {
+        let mut prose = line("offer", 50., 100., 10., "Times-Roman");
+        prose.glyphs[2].origin[0] = 65.000004;
+        prose.glyphs[2].bounds.x0 = 65.000004;
+        prose.glyphs[3].origin[0] = 65.;
+        prose.glyphs[3].bounds.x0 = 65.;
+        let units = translation_units(&page(vec![block(vec![prose])]), &[]);
+        assert_eq!(units[0].text.trim(), "offer");
+    }
+    #[test]
+    fn code_blocks_never_reach_translation_and_inline_code_is_preserved() {
+        let source = page(vec![
+            block(vec![
+                line("def decode(data):", 50., 80., 9., "DejaVuSansMono"),
+                line(
+                    "    return data.decode('utf-8')",
+                    50.,
+                    92.,
+                    9.,
+                    "DejaVuSansMono",
+                ),
+            ]),
+            block(vec![
+                line("Use ", 50., 140., 10., "Times-Roman"),
+                line("torch.sigmoid", 70., 140., 9., "DejaVuSansMono"),
+                line(" for stable values.", 130., 140., 10., "Times-Roman"),
+            ]),
+        ]);
+        let regions = vec![LayoutRegion {
+            bounds: Bounds {
+                x0: 40.,
+                y0: 60.,
+                x1: 400.,
+                y1: 160.,
+            },
+            class_id: 1,
+            label: "plain text".into(),
+            confidence: 0.9,
+        }];
+        let units = translation_units(&source, &regions);
+        assert_eq!(
+            units.len(),
+            1,
+            "standalone source code must not be translated"
+        );
+        assert!(
+            units[0].bounds.y0 > 120.,
+            "a broad text region must not move standalone code into prose"
+        );
+        assert!(
+            !units[0].text.contains("torch.sigmoid"),
+            "inline code must be a protected original fragment"
+        );
+        assert_eq!(units[0].math.len(), 1);
     }
 }

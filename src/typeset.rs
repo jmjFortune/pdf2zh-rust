@@ -5,6 +5,7 @@ use anyhow::{Context, Result, bail, ensure};
 pub struct MathFragment {
     pub bounds: Bounds,
     pub baseline: f32,
+    pub glyphs: Vec<crate::types::Glyph>,
 }
 #[derive(Clone, Debug)]
 pub enum Content {

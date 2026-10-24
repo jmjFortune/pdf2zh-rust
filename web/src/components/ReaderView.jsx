@@ -9,13 +9,17 @@ import {
   ChevronRight,
   Copy,
   Check,
-  Info
+  Info,
+  Maximize2,
+  Minimize2
 } from "lucide-react";
+import PdfViewport from "./PdfViewport";
 import { api, previewUrl, translatedPages } from "../lib/api";
 
 export default function ReaderView({ paperId, onSelectLibrary }) {
   const [currentPage, setCurrentPage] = useState(1);
   const [zoom, setZoom] = useState(100);
+  const [expanded, setExpanded] = useState(false);
   const [viewMode, setViewMode] = useState("split");
   const [hoveredParagraph, setHoveredParagraph] = useState(null);
   const [activeFormula, setActiveFormula] = useState(null);
@@ -42,6 +46,12 @@ export default function ReaderView({ paperId, onSelectLibrary }) {
     return () => { active = false; };
   }, [paperId]);
 
+  useEffect(() => {
+    const close = (event) => { if (event.key === "Escape") setExpanded(false); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, []);
+
   const paper = data?.paper;
   const job = data?.job;
   const spreadOnly = job?.files.side_by_side && !job.files.mono && !job.files.dual;
@@ -66,9 +76,9 @@ export default function ReaderView({ paperId, onSelectLibrary }) {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3.5rem)] bg-[#F5F2EB] -m-6 lg:-m-8 overflow-hidden">
+    <div className={`flex flex-col min-h-0 bg-[#F5F2EB] overflow-hidden ${expanded ? "fixed inset-0 z-50" : "h-full"}`}>
       {/* Reader Top Action Bar */}
-      <div className="relative z-20 h-14 bg-white border-b border-[#E8E4DA] px-6 lg:px-8 flex items-center justify-between shrink-0 gap-4">
+      <div className="relative z-20 min-h-14 py-2 flex-wrap bg-white border-b border-[#E8E4DA] px-6 lg:px-8 flex items-center justify-between shrink-0 gap-4">
         {/* Document Info with Tooltip */}
         <div
           className="relative min-w-0 shrink"
@@ -141,17 +151,19 @@ export default function ReaderView({ paperId, onSelectLibrary }) {
           {/* Page Switcher */}
           <div className="flex items-center bg-[#FAF9F5] border border-[#E2DBD0] rounded-xl px-2.5 py-1 text-xs whitespace-nowrap shrink-0">
             <button
-              disabled={currentPage <= 1}
+              aria-label="Previous page" disabled={currentPage <= 1}
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               className="p-1 text-[#6E6961] hover:text-[#1F1E1D] disabled:opacity-30"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
             <span className="mx-2 font-mono text-[#1F1E1D] whitespace-nowrap select-none">
-              {currentPage} / {paper.totalPages}
+              <input aria-label="Page number" type="number" min={1} max={paper.totalPages} value={currentPage}
+                onChange={(event) => { const page = Number(event.target.value); if (Number.isInteger(page) && page >= 1 && page <= paper.totalPages) setCurrentPage(page); }}
+                className="w-12 bg-transparent text-center" /> / {paper.totalPages}
             </span>
             <button
-              disabled={currentPage >= paper.totalPages}
+              aria-label="Next page" disabled={currentPage >= paper.totalPages}
               onClick={() => setCurrentPage((p) => Math.min(paper.totalPages, p + 1))}
               className="p-1 text-[#6E6961] hover:text-[#1F1E1D] disabled:opacity-30"
             >
@@ -198,19 +210,26 @@ export default function ReaderView({ paperId, onSelectLibrary }) {
           {/* Zoom */}
           <div className="hidden sm:flex items-center space-x-1 text-xs text-[#6E6961] whitespace-nowrap shrink-0">
             <button
-              onClick={() => setZoom((z) => Math.max(80, z - 10))}
+              aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(25, z - 25))}
               className="p-1 hover:bg-[#EAE5D9] rounded"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="font-mono w-9 text-center select-none">{zoom}%</span>
+            <span aria-label="Zoom level" className="font-mono w-9 text-center select-none">{zoom}%</span>
             <button
-              onClick={() => setZoom((z) => Math.min(140, z + 10))}
+              aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(300, z + 25))}
               className="p-1 hover:bg-[#EAE5D9] rounded"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
           </div>
+        </div>
+
+        <div className="flex items-center gap-2 text-xs">
+          <button onClick={() => setZoom(100)} className="px-3 py-2 border border-[#E2DBD0] rounded-xl">Fit width</button>
+          <button aria-label={expanded ? "Exit full screen" : "Full screen"} onClick={() => setExpanded((value) => !value)} className="p-2 border border-[#E2DBD0] rounded-xl">
+            {expanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
         </div>
 
         {/* Export Buttons */}
@@ -225,21 +244,13 @@ export default function ReaderView({ paperId, onSelectLibrary }) {
         </div>
       </div>
 
-      {/* Reader Body */}
-      <div className="flex-1 overflow-y-auto p-8 flex justify-center">
-        <div
-          className={`w-full transition-all duration-200 ${
-            viewMode === "split" && !spreadOnly
-              ? "max-w-6xl grid grid-cols-2 gap-8"
-              : "max-w-2xl mx-auto"
-          }`}
-          style={{ transform: `scale(${zoom / 100})`, transformOrigin: "top center" }}
-        >
-          {!paper.has_content ? <>
-            {spreadOnly && viewMode === "split" && <iframe key={`spread-${currentPage}`} title="Bilingual PDF" src={previewUrl(job, "side_by_side", currentPage)} className="w-full h-[75vh] bg-white border border-[#E2DBD0] rounded-2xl shadow-sm" />}
-            {((viewMode === "split" && !spreadOnly) || viewMode === "en") && <iframe key={`original-${currentPage}`} title="Original PDF" src={previewUrl(job, "original", originalPage)} className="w-full h-[75vh] bg-white border border-[#E2DBD0] rounded-2xl shadow-sm" />}
-            {((viewMode === "split" && !spreadOnly) || viewMode === "zh") && (job.files.mono || job.files.dual ? <iframe key={`translation-${currentPage}`} title="Translated PDF" src={previewUrl(job, translationKind, translationPage)} className="w-full h-[75vh] bg-white border border-[#E2DBD0] rounded-2xl shadow-sm" /> : <p className="text-sm text-[#78716A]">A separate translation PDF was not generated for this job.</p>)}
-          </> : <>
+      {/* PDF.js keeps scrolling and keyboard input in this application. */}
+      {!paper.has_content ? <PdfViewport page={currentPage} zoom={zoom} documents={[
+        ...(spreadOnly && viewMode === "split" ? [{ kind: "spread", label: "Dual PDF", url: previewUrl(job, "side_by_side", currentPage).split("#")[0], page: currentPage }] : []),
+        ...(((viewMode === "split" && !spreadOnly) || viewMode === "en") ? [{ kind: "original", label: "Original PDF", url: previewUrl(job, "original", originalPage).split("#")[0], page: originalPage }] : []),
+        ...(((viewMode === "split" && !spreadOnly) || viewMode === "zh") && (job.files.mono || job.files.dual) ? [{ kind: "translated", label: "Translated PDF", url: previewUrl(job, translationKind, translationPage).split("#")[0], page: translationPage }] : []),
+      ]} /> : <div className="flex-1 min-h-0 overflow-auto p-4">
+        <div className={viewMode === "split" ? "grid grid-cols-2 gap-4" : "w-full"}>
           {/* Left: Original (English) */}
           {(viewMode === "split" || viewMode === "en") && (
             <div className="bg-white border border-[#E2DBD0] rounded-2xl p-8 space-y-6 shadow-sm select-text">
@@ -373,8 +384,11 @@ export default function ReaderView({ paperId, onSelectLibrary }) {
               ))}
             </div>
           )}
-          </>}
         </div>
+      </div>}
+
+      <div id="pdf-pan-help" className="px-4 py-1.5 text-xs text-[#6E6961] border-t border-[#E8E4DA]">
+        Click the page, then use ↑ ↓ ← → to pan. Shift + arrow moves farther. Esc exits full screen.
       </div>
 
       {/* Clean Bottom Terminology Bar */}

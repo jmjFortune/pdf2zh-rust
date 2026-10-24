@@ -160,3 +160,91 @@ fn dual_outputs_remap_internal_links_and_outlines() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn inline_fragment_does_not_capture_unowned_neighbor_text() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let input = tmp.path().join("input.pdf");
+    pdf::fixture(&input)?;
+    let original = pdf::open(&input, None)?;
+    let info = pdf::page_text(&original, 0)?;
+    let formula = info
+        .blocks
+        .iter()
+        .find(|b| b.text().contains("mc2"))
+        .unwrap();
+    let owned = formula
+        .lines
+        .iter()
+        .flat_map(|l| l.glyphs.iter())
+        .cloned()
+        .collect::<Vec<_>>();
+    // Deliberately include the neighboring paragraph in the bounding rectangle.
+    // Only the formula's owned glyphs may survive in the captured form.
+    let mut bounds = formula.bounds;
+    bounds.y0 = 60.;
+    let mut result = mupdf::pdf::PdfDocument::new();
+    let mut page = result.new_page(mupdf::Size::A4)?;
+    // Source rotation differs from the engine's unrotated working coordinates.
+    // Ownership must be resolved against the temporary unrotated capture page.
+    original.load_pdf_page(0)?.set_rotation(90)?;
+    let form = pdf::fragment_form(&mut result, &original, 0, bounds, &owned)?;
+    pdf::draw_form(&mut result, &mut page, form, 72., 250., 1.)?;
+    let path = tmp.path().join("moved.pdf");
+    pdf::save(&result, &path)?;
+    let output = pdf::open(&path, None)?;
+    let text = pdf::page_text(&output, 0)?
+        .blocks
+        .iter()
+        .map(|b| b.text())
+        .collect::<String>();
+    assert!(text.contains("mc2"), "owned formula was lost: {text}");
+    assert!(
+        !text.contains("Hello"),
+        "neighboring prose leaked from formula capture: {text}"
+    );
+    Ok(())
+}
+
+#[test]
+fn moving_inline_fraction_removes_its_rule_but_keeps_crossing_frame() -> anyhow::Result<()> {
+    use pdf2zh_rust::types::Bounds;
+    let mut doc = mupdf::pdf::PdfDocument::new();
+    let mut page = doc.new_page((300., 300.))?;
+    page.insert_contents(
+        &mut doc,
+        b"q 0 0 0 rg 100 200 20 0.5 re f 1 w 90 180 80 40 re S Q",
+        true,
+    )?;
+    let before = pdf::render_rgb(&page, 2.)?;
+    pdf::remove_fragment_paths(
+        &mut page,
+        &[Bounds {
+            x0: 99.,
+            y0: 98.,
+            x1: 121.,
+            y1: 102.,
+        }],
+    )?;
+    let after = pdf::render_rgb(&page, 2.)?;
+    assert!(
+        before.get_pixel(220, 199)[0] < 80,
+        "fixture fraction rule missing"
+    );
+    assert!(
+        after.get_pixel(220, 199)[0] > 240,
+        "original fraction rule was left behind"
+    );
+    for y in 150..250 {
+        for x in 170..350 {
+            if !(196..206).contains(&y) || !(196..246).contains(&x) {
+                assert_eq!(
+                    before.get_pixel(x, y),
+                    after.get_pixel(x, y),
+                    "crossing frame changed at {x},{y}"
+                );
+            }
+        }
+    }
+    Ok(())
+}

@@ -85,3 +85,10 @@
 - 验证：Actions 39955888217 的 17 项 Linux 测试及最终容器检查通过；NAS healthy，8 条任务/全部输入哈希保留，设置文件 SHA256 不变，用户清空后的文库仍为空。浏览器确认 20 个按钮、无 About、Dual 标签；本机实点 Export Dual 的 PDF 宽度为原稿两倍，Azure region 保存/刷新及非法参数拒绝检查通过。
 - 没做完 / 已知问题：新增付费服务没有逐家实账户调用；模型/密钥需要用户按账户配置。原 47 页文档没有因此完成，内置浏览器 PDF 显示限制未改。
 - 下一个接手的人先看：verification.md 本次验收与 api.md。部署 digest ac1a3f3fa8641811c3a07f5be28007d6eb8582d1a503fd5587a9787af95c8de7；内部旧格式标识保持兼容，勿互换持久化文件含义。
+
+## 2026-10-24 Codex（行内公式、代码保护与阅读器修复验收中）
+- 做了什么：复现用户第 22 页的真实重叠；合并分裂段落、按正文基线归行、精确捕获公式/行内代码、同步移动分数横线；整块等宽代码不翻译、不重排。阅读器使用本地打包 PDF.js，放满可用区域并支持方向键、适应宽度、全屏、页码跳转。
+- 改了哪些文件：独立项目 src/engine.rs、pdf.rs、typeset.rs、静态 MIME；ReaderView/PdfPage/PdfViewport、页面布局与 scoped CSS；PDF.js 构建资源脚本/package/lock/NOTICE；回归和构建文档。原 translator 业务代码未改。
+- 验证：最初公式分块/代码保护测试在旧代码失败后通过；真实第 22 页通过本地 mock 重新排版，无外部翻译请求，不能把该样本称为真实新译文。已验证 PDF.js 真正显示旧完整 PDF、方向键四向平移、全屏/适应宽度/跳页；最终完整套件与云端/NAS 结果见后续记录。
+- 没做完 / 已知问题：NAS ZeroTier/LAN 地址均超时，部署待连接恢复。原完成的 47 页旧产物仍含原排版缺陷，保留不覆盖；新版排版需重新生成。字体不可区分的代码尚无通用语义识别。
+- 下一个接手的人先看：inline-reader-plan.md、verification.md 与 api.md 最新边界；工作目录已移至 Desktop/projects/pdf2zh-rust，私有 mock/原 PDF 均在忽略的 artifacts 下。

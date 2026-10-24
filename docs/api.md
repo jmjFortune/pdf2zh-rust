@@ -123,7 +123,7 @@ analysis the UI uses an indeterminate bar and the label `Analyzing`; an analyzer
 page number must never be presented as completed translation percentage.
 
 This adapter does not implement the Python backend's Zotero connector endpoints,
-OCR, or structured paragraph/formula reader API. The About page identifies those
+OCR, or structured paragraph/formula reader API. These remain
 limits. No existing translator credential file is imported automatically.
 
 ## Provider profiles and UI terminology (2026-10-23)
@@ -165,3 +165,11 @@ Endpoint references checked against the providers' primary documentation:
 [Xinference](https://inference.readthedocs.io/en/latest/user_guide/client_api.html),
 [ModelScope](https://modelscope.cn/docs/model-service/API-Inference/intro).
 Mock protocol/authentication tests do not imply paid live account verification.
+
+## Native paragraph repair and controlled PDF reader (2026-10-24)
+
+Intersecting extraction blocks and pieces of the same detected paragraph are typeset together; prose baselines keep stacked fractions and scripts on their visual rows. Original math and inline monospaced code are captured by exact glyph ownership, with covered fraction-vector paths moved alongside them. Whole monospaced code blocks retain their original line breaks/indentation and bypass translation; prose cannot be regrouped across them. This font-based protection does not claim universal code recognition for PDFs with indistinguishable prose/code fonts.
+
+The reader uses pinned Mozilla PDF.js in the browser, with same-origin worker/resources prepared during the static build. It fills available space and provides 25–300% zoom, Fit width, page-number navigation and a full-window mode. Click the reading area then use arrow keys to pan (Shift uses a larger step); Esc leaves full-window mode. Text remains selectable; original/generated PDF downloads remain unchanged. No new backend endpoint or application runtime is introduced. Existing generated PDFs need regeneration to gain engine-layout corrections; a reader update alone does not rewrite them.
+
+Primary renderer reference: [Mozilla PDF.js examples](https://mozilla.github.io/pdf.js/examples/).

@@ -85,7 +85,7 @@ export default function Home() {
         <Navbar currentTab={currentTab} onSelectTab={selectTab} onOpenReader={() => openReader()} hasPaper={Boolean(paperId)} />
 
         {/* Scrollable View Area */}
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8 claude-paper-texture">
+        <main className={`flex-1 min-h-0 claude-paper-texture ${currentTab === "reader" ? "overflow-hidden" : "overflow-y-auto p-6 lg:p-8"}`}>
           <div hidden={currentTab !== "translate"}>
             <TranslateView
               settings={settings}

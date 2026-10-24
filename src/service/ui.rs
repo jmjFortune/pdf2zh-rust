@@ -745,7 +745,8 @@ pub(super) async fn static_file(
     };
     let mime = match path.extension().and_then(|s| s.to_str()).unwrap_or("") {
         "html" => "text/html; charset=utf-8",
-        "js" => "application/javascript; charset=utf-8",
+        "js" | "mjs" => "application/javascript; charset=utf-8",
+        "wasm" => "application/wasm",
         "css" => "text/css; charset=utf-8",
         "json" => "application/json",
         "png" => "image/png",

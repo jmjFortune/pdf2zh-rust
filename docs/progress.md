@@ -74,3 +74,9 @@ Final UI deployment verified: cloud run 39951931277 succeeded; NAS source de39b8
 
 ## 2026-10-23 — provider/UI follow-up complete
 Removed About, standardized visible parallel output as Dual, retained Interleaved, expanded the catalogue from six to twenty profiles and added Azure options/early configuration checks. Local and Linux cloud suites passed all 17 tests. Cloud run 39955888217 published adc81bf / digest ac1a3f3f…; idle NAS update verified healthy with settings bytes, eight records, all input hashes and user-cleared Library intact. Live paid-provider coverage is not claimed. See verification.md and api.md for compatibility details.
+
+## 2026-10-23 inline math / code / reader repair in progress
+- Reproduced actual generated page 22: MuPDF split stacked fractions into overlapping blocks even though layout detected a single paragraph. Added red/green regressions, merged paragraph ownership and prose-baseline rows, exact glyph ownership for original math/code forms. Standalone monospaced source bypasses translation, inline code becomes preserved fragments.
+- First 20-test release run passed. Real-page offline mock exposed a too-long synthetic heading (not an engine failure) and a ligature roundoff ordering issue in new row sorting; shortened mock headings, quantized same-position origins and added a source-order regression. Final suite pending.
+- Replaced PDF-plugin iframes with pinned PDF.js 6.4.299, lazy-loaded in browser; worker/fonts/cmaps/wasm built into static assets, no extra runtime service. Frontend production build passed. Browser renders the actual 47-page completed PDF; 200% arrow panning observed x/y 0→64→0, fullscreen and fit-width work. Added page-number input; final browser/NAS checks pending.
+- Existing completed user output is preserved and still contains old overlap. Diagnostics are private local files; mock output is explicitly layout-only, not a newly translated full user document. No paid API calls.

@@ -142,6 +142,26 @@ pub fn remove_text(page: &mut PdfPage, glyphs: &[Glyph]) -> Result<()> {
     Ok(())
 }
 
+/// Inline fractions contain vector rules as well as glyphs. Remove only paths
+/// fully covered by a moved fragment; preserve crossing frames/images and text.
+pub fn remove_fragment_paths(page: &mut PdfPage, bounds: &[Bounds]) -> Result<()> {
+    for b in bounds {
+        page.add_redact_annotation(Rect::new(
+            b.x0 - 0.25,
+            b.y0 - 0.25,
+            b.x1 + 0.25,
+            b.y1 + 0.25,
+        ))?;
+    }
+    page.apply_redactions_with_options(PdfRedactOptions {
+        image_method: PdfRedactImageMethod::None,
+        line_art: PdfRedactLineArtMethod::RemoveIfCovered,
+        text: mupdf::pdf::PdfRedactTextMethod::None,
+        ..PdfRedactOptions::mupdf_default()
+    })?;
+    Ok(())
+}
+
 /// Fit all text atomically. The Shape API writes nothing on overflow; error
 /// instead of emitting a clipped or silently incomplete translated paragraph.
 pub fn write_box(
@@ -469,6 +489,27 @@ pub fn formula_form(
     index: usize,
     bounds: Bounds,
 ) -> Result<mupdf::pdf::PdfObject> {
+    capture_fragment(dest, source, index, bounds, None)
+}
+
+/// Inline math/code owns exact glyphs, not every glyph intersecting its box.
+/// Stacked formulas can geometrically overlap adjacent source text rows.
+pub fn fragment_form(
+    dest: &mut PdfDocument,
+    source: &PdfDocument,
+    index: usize,
+    bounds: Bounds,
+    glyphs: &[Glyph],
+) -> Result<mupdf::pdf::PdfObject> {
+    capture_fragment(dest, source, index, bounds, Some(glyphs))
+}
+fn capture_fragment(
+    dest: &mut PdfDocument,
+    source: &PdfDocument,
+    index: usize,
+    bounds: Bounds,
+    owned: Option<&[Glyph]>,
+) -> Result<mupdf::pdf::PdfObject> {
     use mupdf::pdf::{InsertPdfOptions, PageSelection};
     let mut temp = PdfDocument::new();
     temp.insert_pdf(
@@ -488,21 +529,37 @@ pub fn formula_form(
         x1: bounds.x1 + pad,
         y1: bounds.y1 + pad,
     };
-    for r in [
-        Rect::new(full.x0, full.y0, full.x1, b.y0),
-        Rect::new(full.x0, b.y1, full.x1, full.y1),
-        Rect::new(full.x0, b.y0, b.x0, b.y1),
-        Rect::new(b.x1, b.y0, full.x1, b.y1),
-    ] {
-        if r.width() > 0. && r.height() > 0. {
-            page.add_redact_annotation(r)?;
+    if let Some(owned) = owned {
+        let info = page_text(&temp, 0)?;
+        let remove = info
+            .blocks
+            .into_iter()
+            .flat_map(|b| b.lines)
+            .flat_map(|l| l.glyphs)
+            .filter(|g| {
+                !owned
+                    .iter()
+                    .any(|o| o.text == g.text && o.origin == g.origin && o.font == g.font)
+            })
+            .collect::<Vec<_>>();
+        remove_text(&mut page, &remove)?;
+    } else {
+        for r in [
+            Rect::new(full.x0, full.y0, full.x1, b.y0),
+            Rect::new(full.x0, b.y1, full.x1, full.y1),
+            Rect::new(full.x0, b.y0, b.x0, b.y1),
+            Rect::new(b.x1, b.y0, full.x1, b.y1),
+        ] {
+            if r.width() > 0. && r.height() > 0. {
+                page.add_redact_annotation(r)?;
+            }
         }
+        page.apply_redactions_with_options(PdfRedactOptions {
+            image_method: PdfRedactImageMethod::None,
+            line_art: PdfRedactLineArtMethod::None,
+            ..PdfRedactOptions::mupdf_default()
+        })?;
     }
-    page.apply_redactions_with_options(PdfRedactOptions {
-        image_method: PdfRedactImageMethod::None,
-        line_art: PdfRedactLineArtMethod::None,
-        ..PdfRedactOptions::mupdf_default()
-    })?;
     let original = page_form(dest, &page)?;
     let mut xobjects = dest.new_dict()?;
     xobjects.dict_put("Source", original)?;

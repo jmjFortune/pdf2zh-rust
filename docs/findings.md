@@ -33,3 +33,14 @@
 
 ## 2026-10-23 follow-up: deployment download cost
 - The HTTP-400 repair cloud run reused its resource-stage cache, but the final runtime resource COPY executed after the changed binary COPY, so its cache was invalidated by the preceding layer. NAS pulled a new large resource blob despite the model hashes being unchanged. A future Docker-only optimization should place stable resource/license COPY layers before the frequently changing binary (or verify COPY --link support). Do not interrupt the current verified image pull or replace it with an unverified derivative while recovering the user failure.
+
+## 2026-10-23 inline/code/reader root cause
+- NAS user job now completed, 47 pages/764 translated blocks; its generated PDF itself reproduces page-22 overlap. This is not merely a viewer zoom effect.
+- Native MuPDF divides the RoPE paragraph into overlapping blocks 12–15 at stacked fractions/subscripts; engine treats each block independently and allows their reflow areas to overlap. Same defect occurs in page-22 blocks 2/3 and 9/10. Layout model correctly detects each as one plain-text paragraph; engine ignores that paragraph grouping.
+- Formula raster capture is based on rectangular bounds, which can include glyphs from adjacent visual rows; use exact glyph ownership while retaining formula vectors.
+- Code fonts in real pages 5/15 are DejaVuSansMono. Engine protects math fonts only, so standalone code and inline identifiers can reach translation and lose syntax/layout. Preserve standalone monospaced blocks; protect inline code as original fragments.
+- Reader uses nested 75vh PDF iframes, max-w-2xl/max-w-6xl and transform-scale on the outer container; browser PDF plugin owns inner scrolling/key events. Replace with Mozilla PDF.js page canvas + selectable text layer, application scrolling and keyboard control; expand reader area, add fullscreen/fit width and real zoom.
+
+- Offline page-22 render now has a single flowing RoPE paragraph with fourteen original fragments and no body/formula overlap. Synthetic Chinese supplied by a local mock is explicitly geometry-only. Additional inspection found original fraction vector rules left behind after glyph removal; scoped covered-path redaction now removes only moved fragment paths, preserving crossing frame paths/images/text, covered by pixel regression.
+- Whole source-code blocks must be separated before joining detector text regions; a broad plain-text detector region can include code plus prose. Added a guard and regression to preserve indentation/line positions even in that case.
+- Workspace was moved by the user to Desktop/projects between sessions. Updated local test server path and restarted only the owned mock; an initial diagnostic retry failed solely because its old absolute log path no longer existed. NAS ZeroTier and LAN probes time out; no network settings were changed.
