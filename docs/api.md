@@ -178,6 +178,14 @@ Endpoint references checked against the providers' primary documentation:
 [ModelScope](https://modelscope.cn/docs/model-service/API-Inference/intro).
 Mock protocol/authentication tests do not imply paid live account verification.
 
+## Paragraph retention warnings (2026-10-29)
+
+An invalid translated paragraph (empty, excessive length or invalid formula markers after retries) or a preflight layout overflow retains its original PDF content and lets other paragraphs continue. Provider HTTP errors, network/configuration/cache failures, cancellation, missing fonts and PDF write errors still fail the task. If no paragraph was translated and any paragraph was retained, the task fails without publishing a PDF.
+
+The existing progress `message` carries each warning and the final retained-paragraph count with the first ten page/paragraph/reason entries. The UI job snapshot and event stream preserve that message across reloads and service restarts; status remains `completed` (`done` in the UI adapter) for partial results. All entries are saved in the task directory's `warnings.json`; paragraph numbers refer to one-based translation candidates on the original physical page. This adds no endpoint or frontend dependency. Successful paragraph/boundary translations remain cached; unusable model output is never cached. A valid translation that exceeds its PDF box can be cached and is still preflight-checked on reuse.
+
+Ordinary hyphens are preserved inside and across lines, with no added space when joining an alphabetic hyphenated word. Explicit soft hyphens are removed. The engine deliberately preserves ambiguous ASCII line-end hyphens, including discretionary ones that the PDF encoded as ordinary `-`; it cannot reliably infer word spelling from that character alone. Table and code protection is unchanged.
+
 ## Native paragraph repair and controlled PDF reader (2026-10-24)
 
 Intersecting extraction blocks and pieces of the same detected paragraph are typeset together; prose baselines keep stacked fractions and scripts on their visual rows. Original math and inline monospaced code are captured by exact glyph ownership, with covered fraction-vector paths moved alongside them. Whole monospaced code blocks retain their original line breaks/indentation and bypass translation; prose cannot be regrouped across them. This font-based protection does not claim universal code recognition for PDFs with indistinguishable prose/code fonts.

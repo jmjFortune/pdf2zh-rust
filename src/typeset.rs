@@ -1,5 +1,5 @@
 use crate::types::Bounds;
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 
 #[derive(Clone, Debug)]
 pub struct MathFragment {
@@ -22,6 +22,16 @@ pub struct Plan {
     pub size: f32,
     pub items: Vec<Placement>,
 }
+
+/// An expected preflight failure, before any source PDF content is removed.
+#[derive(Debug)]
+pub(crate) struct Overflow;
+impl std::fmt::Display for Overflow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("translated paragraph overflows at minimum font size")
+    }
+}
+impl std::error::Error for Overflow {}
 
 pub fn parse(text: &str, count: usize) -> Result<Vec<Content>> {
     let mut result = Vec::new();
@@ -80,11 +90,7 @@ pub fn fit(
             return Ok(Plan { size, items });
         }
         if size <= min {
-            bail!(
-                "translated paragraph with formulas overflows at ({:.1},{:.1})",
-                bounds.x0,
-                bounds.y0
-            );
+            return Err(Overflow.into());
         }
         size = (size - 0.5).max(min);
     }

@@ -94,6 +94,9 @@ impl Drop for Mock {
 }
 impl Mock {
     async fn start() -> Result<Self> {
+        Self::with_failed_second_boundary(false).await
+    }
+    async fn with_failed_second_boundary(fail_boundary: bool) -> Result<Self> {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let captured = requests.clone();
         let app = Router::new().route("/chat/completions", post(move |Json(body): Json<Value>| {
@@ -101,7 +104,11 @@ impl Mock {
             async move {
                 let input = body["messages"][1]["content"].as_str().unwrap();
                 let translated = |text: &str| if text.contains("not statistically") { "前页未完句。" } else if text.contains("significant (p") { "后页续句。" } else { "背景说明。" };
-                let output = if let Ok(items) = serde_json::from_str::<Vec<Value>>(input) {
+                let output = if fail_boundary && input.starts_with('[') {
+                    "invalid batch JSON".to_owned()
+                } else if fail_boundary && input.contains("significant (p") {
+                    String::new()
+                } else if let Ok(items) = serde_json::from_str::<Vec<Value>>(input) {
                     // IDs, rather than response order, must determine page ownership.
                     serde_json::to_string(&items.iter().rev().map(|item| json!({"id":item["id"],"output":translated(item["input"].as_str().unwrap())})).collect::<Vec<_>>()).unwrap()
                 } else { translated(input).to_owned() };
@@ -119,6 +126,56 @@ impl Mock {
             task,
         })
     }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn invalid_batch_and_second_paragraph_do_not_discard_valid_first_paragraph() -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let input = tmp.path().join("input.pdf");
+    fixture(&input, 2)?;
+    let mock = Mock::with_failed_second_boundary(true).await?;
+    let output = tmp.path().join("output.pdf");
+    let data = tmp.path().join("data");
+    translate(&input, &output, &data, &mock, "").await?;
+    let doc = pdf::open(&output, None)?;
+    let text = |index| {
+        pdf::page_text(&doc, index)
+            .unwrap()
+            .blocks
+            .iter()
+            .map(|b| b.text())
+            .collect::<String>()
+    };
+    assert!(text(0).contains("前页未完句"));
+    assert!(!text(0).contains("not statistically"));
+    assert!(text(1).contains("significant (p"));
+    assert!(text(1).contains("背景说明"));
+    assert_eq!(doc.load_pdf_page(1)?.rotation()?, 90);
+    let warnings: Value = serde_json::from_slice(&std::fs::read(data.join("warnings.json"))?)?;
+    assert_eq!(warnings.as_array().unwrap().len(), 1);
+    assert_eq!(warnings[0]["page"], 2);
+    let requests = mock.requests.lock().unwrap();
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|body| {
+                let input = body["messages"][1]["content"].as_str().unwrap();
+                !input.starts_with('[') && input.contains("not statistically")
+            })
+            .count(),
+        1
+    );
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|body| {
+                let input = body["messages"][1]["content"].as_str().unwrap();
+                !input.starts_with('[') && input.contains("significant (p")
+            })
+            .count(),
+        3
+    );
+    Ok(())
 }
 
 async fn translate(

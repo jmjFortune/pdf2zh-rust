@@ -84,6 +84,53 @@ async fn wait(c: &reqwest::Client, base: &str, id: &str) -> Result<Value> {
     anyhow::bail!("job timed out")
 }
 #[tokio::test(flavor = "current_thread")]
+async fn completion_warnings_survive_reload_and_reach_ui_events() -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let data = tmp.path().join("data");
+    let web = tmp.path().join("web");
+    std::fs::create_dir_all(&data)?;
+    std::fs::create_dir_all(&web)?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let dir = data.join(&id);
+    std::fs::create_dir(&dir)?;
+    let progress = json!({"stage":"done","page":1,"total":1,"completed_blocks":1,
+        "message":"Warning: 2 paragraphs retained in original form; page 1 paragraph 2: layout overflow"});
+    let db = rusqlite::Connection::open(data.join("jobs.sqlite3"))?;
+    db.execute_batch("CREATE TABLE jobs(id TEXT PRIMARY KEY,filename TEXT NOT NULL,status TEXT NOT NULL,created INTEGER NOT NULL DEFAULT(unixepoch()),progress TEXT,error TEXT);")?;
+    db.execute(
+        "INSERT INTO jobs(id,filename,status,progress) VALUES (?1,'partial.pdf','completed',?2)",
+        rusqlite::params![id, progress.to_string()],
+    )?;
+    drop(db);
+    let client = reqwest::Client::new();
+    for _ in 0..2 {
+        let (server, base) = start(&data, &web).await?;
+        let job: Value = client
+            .get(format!("{base}/api/ui/jobs/{id}"))
+            .send()
+            .await?
+            .json()
+            .await?;
+        assert_eq!(job["status"], "done");
+        assert!(
+            job["message"]
+                .as_str()
+                .unwrap()
+                .contains("2 paragraphs retained")
+        );
+        let event = client
+            .get(format!("{base}/api/ui/jobs/{id}/events"))
+            .send()
+            .await?
+            .text()
+            .await?;
+        assert!(event.contains("2 paragraphs retained"));
+        drop(server);
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn translator_contract_persists_secrets_privately_and_exports_once() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let web = tmp.path().join("web");

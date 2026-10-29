@@ -123,3 +123,11 @@
 - 验证：云端 29 项 Linux 测试、前端构建和最终镜像冒烟通过。NAS 保持原数据卷、11 条原任务和 22 个 PDF 哈希，设置文件字节不变，其他容器未重启；Mono/OpenCode/20 服务保留。相同新镜像的独立两页 loopback mock 验收确认 1 次联合请求、无独立回退、译文原页归属、缓存重跑零请求，两页渲染已查看。测试后再次核对生产状态一致。
 - 没做完 / 已知问题：未自动重译旧 PDF，未调用用户付费接口验证真实模型译质；这不影响已确认的部署身份与请求机制。原 Python 容器、代理和 Docker daemon 配置保持，Mac 未构建或拉 Docker 镜像。
 - 下一个接手的人先看：verification.md 的 GitHub and NAS cross-page rollout，以及 artifacts/cross-page-nas-final.json、cross-page-nas-smoke-result.json 与 nas-deployment-record.json；后续新任务使用修复，历史 PDF 保持原样。
+
+## 2026-10-29 Codex（连字符与单段安全降级）
+
+- 做了什么：按用户“改”，修复全局删除连字符；只在删除原文前对译文内容校验错误、排版溢出保留原段，继续其他段落并提示页码/序号/原因。无任何译文成功时不生成成功 PDF。跨页批量不兼容时逐段回退，后一段失败不丢前段成功结果。
+- 改了哪些文件：src/{engine,translate,typeset}.rs、src/service/ui.rs、tests/{cross_page,ui_adapter,paragraph_reliability}.rs、docs/{api,DECISIONS,verification,STATUS}.md 及 paragraph-reliability 计划记录。复用 Progress.message，无新增接口或前端视觉变更；完整告警写入任务目录 warnings.json。
+- 验证：新增 8 项回归；当前工作区 39 项、剔除预存 thinking 的独立候选 37 项 release 测试全部通过，格式/diff 检查通过。真实 PDF 失败区域像素一致，带公式溢出、跨页失败隔离、鉴权、取消、全部失败、缓存以及告警重启持久化/SSE 均有覆盖。
+- 没做完 / 已知问题：普通 ASCII 行尾连字符无法可靠区分词内连字符与排版断词，采取保留策略；本次不改字体样式、禁则、行距或并发。表格与 extend 保持。thinking_control 原始 170 插入/7 删除继续未提交，GAP 文档未改；未推送 GitHub 或部署 NAS。
+- 下一个接手的人先看：paragraph-reliability/task_plan.md、api.md 的 Paragraph retention warnings 和 verification.md 本次记录；若后续发布，先区分已验证的独立提交和他人未提交改动。

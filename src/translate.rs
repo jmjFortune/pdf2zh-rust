@@ -61,6 +61,29 @@ impl std::fmt::Display for ProviderError {
 }
 impl std::error::Error for ProviderError {}
 
+/// A model answered successfully, but its paragraph cannot be used safely.
+/// Transport, provider configuration and cache errors never use this type.
+#[derive(Debug)]
+pub(crate) struct InvalidTranslation(&'static str);
+impl std::fmt::Display for InvalidTranslation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+impl std::error::Error for InvalidTranslation {}
+
+fn validate_translation(output: &str, original: &str) -> Result<()> {
+    if output.trim().is_empty() {
+        return Err(InvalidTranslation("empty translation").into());
+    }
+    if output.chars().count() > original.chars().count().saturating_mul(20).max(2000) {
+        return Err(InvalidTranslation("translation response is unexpectedly long").into());
+    }
+    crate::typeset::parse(output, original.matches('⟦').count())
+        .map_err(|_| InvalidTranslation("invalid translated formula markers"))?;
+    Ok(())
+}
+
 fn retryable(error: &anyhow::Error) -> bool {
     error.downcast_ref::<ProviderError>().is_none_or(|e| {
         e.status == reqwest::StatusCode::TOO_MANY_REQUESTS
@@ -180,11 +203,23 @@ impl Translator {
     /// Each ID owns its formula namespace and output. A joint result must never
     /// be cached under a single paragraph's context-free cache key.
     pub async fn translate_pair(&mut self, originals: [&str; 2]) -> Result<[String; 2]> {
+        if let Some(pair) = self.try_translate_pair(originals).await? {
+            return Ok(pair);
+        }
+        Ok([
+            self.translate(originals[0]).await?,
+            self.translate(originals[1]).await?,
+        ])
+    }
+
+    // Let the engine fall back one paragraph at a time. A failure in the second
+    // individual request must not discard the first paragraph's valid result.
+    pub(crate) async fn try_translate_pair(
+        &mut self,
+        originals: [&str; 2],
+    ) -> Result<Option<[String; 2]>> {
         if !self.supports_cross_page() {
-            return Ok([
-                self.translate(originals[0]).await?,
-                self.translate(originals[1]).await?,
-            ]);
+            return Ok(None);
         }
         let key = hex::encode(Sha256::digest(serde_json::to_vec(&json!({
             "v":1,"kind":"cross_page","text":originals,"provider":self.settings.provider,
@@ -198,7 +233,7 @@ impl Translator {
                 })
         {
             if let Ok(pair) = parse_pair(&value, originals) {
-                return Ok(pair);
+                return Ok(Some(pair));
             }
             self.cache
                 .execute("DELETE FROM translations WHERE key=?1", [&key])?;
@@ -219,7 +254,7 @@ impl Translator {
                                 {"id":0,"output":pair[0]}, {"id":1,"output":pair[1]}
                             ]))?;
                             self.store_cache(&key, &cached)?;
-                            return Ok(pair);
+                            return Ok(Some(pair));
                         }
                         // A model without reliable structured output keeps the
                         // existing individual path. Never cache a malformed pair.
@@ -232,10 +267,7 @@ impl Translator {
                 }
             }
         }
-        Ok([
-            self.translate(originals[0]).await?,
-            self.translate(originals[1]).await?,
-        ])
+        Ok(None)
     }
 
     fn apply_glossary(&self, original: &str) -> String {
@@ -286,7 +318,7 @@ impl Translator {
                     r.get::<_, String>(0)
                 })
         {
-            if crate::typeset::parse(&value, original.matches('⟦').count()).is_ok() {
+            if validate_translation(&value, original).is_ok() {
                 return Ok(value);
             }
             self.cache
@@ -301,8 +333,8 @@ impl Translator {
         for attempt in 0..3 {
             self.wait_for_slot().await?;
             match self.request(&text, false).await {
-                Ok(v) => match crate::typeset::parse(&v, original.matches('⟦').count()) {
-                    Ok(_) => {
+                Ok(v) => match validate_translation(&v, original) {
+                    Ok(()) => {
                         output = Some(v);
                         break;
                     }
@@ -314,11 +346,6 @@ impl Translator {
             }
         }
         let output = output.context("translation request produced no result")?;
-        ensure!(!output.trim().is_empty(), "translation returned empty text");
-        ensure!(
-            output.chars().count() <= original.chars().count().saturating_mul(20).max(2000),
-            "translation response is unexpectedly long"
-        );
         self.store_cache(&key, &output)?;
         Ok(output)
     }

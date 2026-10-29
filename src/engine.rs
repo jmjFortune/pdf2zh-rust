@@ -70,6 +70,46 @@ pub struct Progress {
     pub message: String,
 }
 
+#[derive(Serialize)]
+struct ParagraphWarning {
+    page: usize,
+    paragraph: usize,
+    reason: String,
+}
+
+// Only these typed preflight failures are paragraph-local. Never catch errors
+// after remove_text, or turn provider/storage/cancellation errors into success.
+fn paragraph_result<T>(
+    result: Result<T>,
+    warnings: &mut Vec<ParagraphWarning>,
+    paragraph: usize,
+    progress: &Progress,
+    emit: &mut impl FnMut(Progress),
+) -> Result<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(error)
+            if error.is::<crate::translate::InvalidTranslation>()
+                || error.is::<typeset::Overflow>() =>
+        {
+            let warning = ParagraphWarning {
+                page: progress.page,
+                paragraph,
+                reason: error.to_string(),
+            };
+            let mut event = progress.clone();
+            event.message = format!(
+                "Warning: original retained on page {}, paragraph {}: {}",
+                warning.page, warning.paragraph, warning.reason
+            );
+            warnings.push(warning);
+            emit(event);
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<()> {
     ensure!(config.input.is_file(), "input PDF does not exist");
     ensure!(
@@ -103,6 +143,7 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
     let mut prepared: BTreeMap<usize, Vec<Unit>> = BTreeMap::new();
     let mut pending: BTreeMap<(usize, usize), String> = BTreeMap::new();
     let mut completed = 0usize;
+    let mut warnings = Vec::new();
     for index in 0..total {
         if !selected.contains(&index) {
             continue;
@@ -167,13 +208,14 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
         let last_body = units.iter().rposition(|unit| unit.body);
         for (unit_index, unit) in units.into_iter().enumerate() {
             check_cancel(&config.data_dir)?;
-            emit(Progress {
+            let progress = Progress {
                 stage: "translate".into(),
                 page: index + 1,
                 total,
                 completed_blocks: completed,
                 message: String::new(),
-            });
+            };
+            emit(progress.clone());
             let translated = async {
                 if let Some(text) = pending.remove(&(index, unit_index)) {
                     return Ok(text);
@@ -211,16 +253,25 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
                         message: String::new(),
                     });
                     if let Some(next_index) = next_units.iter().position(|unit| unit.body) {
-                        let [current, following] = translator
-                            .translate_pair([&unit.text, &next_units[next_index].text])
-                            .await?;
-                        pending.insert((index + 1, next_index), following);
-                        return Ok(current);
+                        if let Some([current, following]) = translator
+                            .try_translate_pair([&unit.text, &next_units[next_index].text])
+                            .await?
+                        {
+                            pending.insert((index + 1, next_index), following);
+                            return Ok(current);
+                        }
                     }
                 }
                 translator.translate(&unit.text).await
             }
-            .await
+            .await;
+            let Some(translated) = paragraph_result(
+                translated,
+                &mut warnings,
+                unit_index + 1,
+                &progress,
+                &mut emit,
+            )
             .with_context(|| {
                 format!(
                     "page {}/{}, completed {} blocks",
@@ -228,7 +279,10 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
                     total,
                     completed
                 )
-            })?;
+            })?
+            else {
+                continue;
+            };
             if translated.trim() == unit.text.trim() {
                 continue;
             }
@@ -236,14 +290,23 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
             check_cancel(&config.data_dir)?;
             if !unit.math.is_empty() {
                 let output_font = mupdf::Font::from_bytes("translation", font)?;
-                let plan = typeset::fit(
-                    &translated,
-                    &unit.math,
-                    unit.bounds,
-                    &output_font,
-                    unit.size,
-                    config.min_font_size,
-                )?;
+                let Some(plan) = paragraph_result(
+                    typeset::fit(
+                        &translated,
+                        &unit.math,
+                        unit.bounds,
+                        &output_font,
+                        unit.size,
+                        config.min_font_size,
+                    ),
+                    &mut warnings,
+                    unit_index + 1,
+                    &progress,
+                    &mut emit,
+                )?
+                else {
+                    continue;
+                };
                 let mut forms = Vec::new();
                 for formula in &unit.math {
                     forms.push(pdf::fragment_form(
@@ -300,16 +363,25 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
                 completed += 1;
                 continue;
             }
-            // Fit before changing source text. If fit fails the job produces no
-            // final PDF, rather than a partly translated result.
-            let fitted = fit_translation(
-                &mut doc,
-                &mut page,
-                &unit,
-                &translated,
-                font,
-                config.min_font_size,
-            )?;
+            // A known overflow leaves the source untouched. Native PDF errors
+            // still fail the task and cannot publish a partially edited file.
+            let Some(fitted) = paragraph_result(
+                fit_translation(
+                    &mut doc,
+                    &mut page,
+                    &unit,
+                    &translated,
+                    font,
+                    config.min_font_size,
+                ),
+                &mut warnings,
+                unit_index + 1,
+                &progress,
+                &mut emit,
+            )?
+            else {
+                continue;
+            };
             pdf::remove_text(&mut page, &unit.glyphs)?;
             pdf::write_box(
                 &mut doc,
@@ -328,6 +400,15 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
         }
     }
     check_cancel(&config.data_dir)?;
+    std::fs::write(
+        config.data_dir.join("warnings.json"),
+        serde_json::to_vec_pretty(&warnings)?,
+    )?;
+    ensure!(
+        completed > 0 || warnings.is_empty(),
+        "no paragraphs translated; {} paragraphs retained in original form (see warnings.json)",
+        warnings.len()
+    );
     emit(Progress {
         stage: "save".into(),
         page: total,
@@ -396,7 +477,26 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
         page: total,
         total,
         completed_blocks: completed,
-        message: String::new(),
+        message: if warnings.is_empty() {
+            String::new()
+        } else {
+            let details = warnings
+                .iter()
+                .take(10)
+                .map(|w| format!("page {} paragraph {}: {}", w.page, w.paragraph, w.reason))
+                .collect::<Vec<_>>()
+                .join("; ");
+            format!(
+                "Warning: {} paragraphs retained in original form; {}{}",
+                warnings.len(),
+                details,
+                if warnings.len() > 10 {
+                    "; showing first 10"
+                } else {
+                    ""
+                }
+            )
+        },
     });
     Ok(())
 }
@@ -450,12 +550,7 @@ fn fit_translation(
             return Ok(size);
         }
         if size <= min {
-            bail!(
-                "page text overflows at ({:.1},{:.1}); minimum font size {}pt",
-                u.bounds.x0,
-                u.bounds.y0,
-                min
-            );
+            return Err(typeset::Overflow.into());
         }
         size = (size - 0.5).max(min);
     }
@@ -522,10 +617,11 @@ fn translation_units(page: &PageText, regions: &[LayoutRegion]) -> Vec<Unit> {
             let mut text = String::new();
             let mut math = Vec::new();
             for line in &block.lines {
+                let mut line_text = String::new();
                 let ranges = math_ranges(&line.glyphs, regions);
                 let mut index = 0;
                 for (start, end) in ranges {
-                    text.extend(line.glyphs[index..start].iter().map(|g| g.text));
+                    line_text.extend(line.glyphs[index..start].iter().map(|g| g.text));
                     let glyphs = &line.glyphs[start..end];
                     let bounds = glyphs
                         .iter()
@@ -533,7 +629,7 @@ fn translation_units(page: &PageText, regions: &[LayoutRegion]) -> Vec<Unit> {
                         .reduce(Bounds::union)
                         .unwrap();
                     let baseline = line_baseline(line, regions) - bounds.y0;
-                    text.push_str(&format!("⟦{}⟧", math.len()));
+                    line_text.push_str(&format!("⟦{}⟧", math.len()));
                     math.push(MathFragment {
                         bounds,
                         baseline,
@@ -541,10 +637,30 @@ fn translation_units(page: &PageText, regions: &[LayoutRegion]) -> Vec<Unit> {
                     });
                     index = end;
                 }
-                text.extend(line.glyphs[index..].iter().map(|g| g.text));
-                text.push(' ');
+                line_text.extend(line.glyphs[index..].iter().map(|g| g.text));
+                let line_text = line_text.trim();
+                if line_text.is_empty() {
+                    continue;
+                }
+                if !text.is_empty() {
+                    // Only an explicit soft hyphen is discretionary. Preserve
+                    // ordinary lexical hyphens; never strip "- " inside a line.
+                    let soft = text.ends_with('\u{ad}');
+                    let lexical = text.ends_with('-')
+                        && text.chars().rev().nth(1).is_some_and(char::is_alphabetic)
+                        && line_text.starts_with(char::is_alphabetic);
+                    if soft {
+                        text.pop();
+                    }
+                    if !soft && !lexical {
+                        text.push(' ');
+                    }
+                }
+                text.push_str(line_text);
             }
-            let text = text.replace("- ", "");
+            // Preserve the established cache key for unaffected paragraphs.
+            text.push(' ');
+            let text = text.replace('\u{ad}', "");
             if !translatable(&text) {
                 continue;
             }
@@ -931,6 +1047,43 @@ mod paragraph_tests {
             },
             rotation: 0,
             blocks,
+        }
+    }
+    #[test]
+    fn hyphens_inside_lines_are_not_deleted() {
+        for input in [
+            "A- B comparison",
+            "Fig. 3 - Results",
+            "state - of - the - art",
+        ] {
+            let source = page(vec![block(vec![line(
+                input,
+                50.,
+                100.,
+                10.,
+                "Times-Roman",
+            )])]);
+            let units = translation_units(&source, &[]);
+            assert_eq!(units[0].text.trim(), input);
+        }
+    }
+
+    #[test]
+    fn line_joining_preserves_lexical_hyphens_and_removes_soft_hyphens() {
+        for (first, next, expected) in [
+            ("state-of-the-", "art methods", "state-of-the-art methods"),
+            ("multi-", "head attention", "multi-head attention"),
+            ("multi-  ", "  head attention", "multi-head attention"),
+            ("trans\u{ad}", "former models", "transformer models"),
+            ("ordinary", "paragraph text", "ordinary paragraph text"),
+            ("Results -", "Discussion", "Results - Discussion"),
+        ] {
+            let source = page(vec![block(vec![
+                line(first, 50., 100., 10., "Times-Roman"),
+                line(next, 50., 112., 10., "Times-Roman"),
+            ])]);
+            let units = translation_units(&source, &[]);
+            assert_eq!(units[0].text.trim(), expected);
         }
     }
     #[test]

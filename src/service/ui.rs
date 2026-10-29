@@ -355,7 +355,7 @@ fn job_value(s: &Store, job: &JobInfo) -> Value {
     };
     let message = if let Some(p) = &job.progress {
         format!(
-            "{} · page {}/{} · {} translated blocks{}",
+            "{} · page {}/{} · {} translated blocks{}{}",
             stage,
             p.page,
             p.total,
@@ -364,6 +364,11 @@ fn job_value(s: &Store, job: &JobInfo) -> Value {
                 " · cancelling…"
             } else {
                 ""
+            },
+            if p.message.is_empty() {
+                String::new()
+            } else {
+                format!(" · {}", p.message)
             }
         )
     } else {
