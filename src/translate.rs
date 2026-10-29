@@ -170,6 +170,107 @@ impl Translator {
         })
     }
 
+    pub fn supports_cross_page(&self) -> bool {
+        matches!(
+            self.settings.provider.as_str(),
+            "openai" | "azureopenai" | "ollama"
+        )
+    }
+
+    /// Each ID owns its formula namespace and output. A joint result must never
+    /// be cached under a single paragraph's context-free cache key.
+    pub async fn translate_pair(&mut self, originals: [&str; 2]) -> Result<[String; 2]> {
+        if !self.supports_cross_page() {
+            return Ok([
+                self.translate(originals[0]).await?,
+                self.translate(originals[1]).await?,
+            ]);
+        }
+        let key = hex::encode(Sha256::digest(serde_json::to_vec(&json!({
+            "v":1,"kind":"cross_page","text":originals,"provider":self.settings.provider,
+            "source":self.settings.source,"target":self.settings.target,"url":self.settings.base_url,
+            "model":self.settings.model,"glossary":self.settings.glossary,"options":self.settings.options
+        }))?));
+        if let Ok(value) =
+            self.cache
+                .query_row("SELECT value FROM translations WHERE key=?1", [&key], |r| {
+                    r.get::<_, String>(0)
+                })
+        {
+            if let Ok(pair) = parse_pair(&value, originals) {
+                return Ok(pair);
+            }
+            self.cache
+                .execute("DELETE FROM translations WHERE key=?1", [&key])?;
+        }
+        // Preserve offline recovery from older, per-paragraph snapshots. This
+        // fallback cannot add context but still must make zero network requests.
+        if !self.cache_only {
+            let input = serde_json::to_string(&json!([
+                {"id":0,"input":self.apply_glossary(originals[0])},
+                {"id":1,"input":self.apply_glossary(originals[1])}
+            ]))?;
+            for attempt in 0..3 {
+                self.wait_for_slot().await?;
+                match self.request(&input, true).await {
+                    Ok(output) => {
+                        if let Ok(pair) = parse_pair(&output, originals) {
+                            let cached = serde_json::to_string(&json!([
+                                {"id":0,"output":pair[0]}, {"id":1,"output":pair[1]}
+                            ]))?;
+                            self.store_cache(&key, &cached)?;
+                            return Ok(pair);
+                        }
+                        // A model without reliable structured output keeps the
+                        // existing individual path. Never cache a malformed pair.
+                        break;
+                    }
+                    Err(error) if attempt < 2 && retryable(&error) => {
+                        tokio::time::sleep(Duration::from_secs(1 << attempt)).await;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+        Ok([
+            self.translate(originals[0]).await?,
+            self.translate(originals[1]).await?,
+        ])
+    }
+
+    fn apply_glossary(&self, original: &str) -> String {
+        let mut text = original.to_owned();
+        let mut terms = self.settings.glossary.iter().collect::<Vec<_>>();
+        terms.sort_by_key(|(k, _)| std::cmp::Reverse(k.len()));
+        for (source, target) in terms {
+            if !source.is_empty() {
+                text = text.replace(source, target);
+            }
+        }
+        text
+    }
+
+    async fn wait_for_slot(&mut self) -> Result<()> {
+        let interval = Duration::try_from_secs_f64(1. / self.settings.requests_per_second)
+            .context("configured request interval is too large")?;
+        if let Some(last) = self.last_request
+            && let Some(wait) = interval.checked_sub(last.elapsed())
+        {
+            tokio::time::sleep(wait).await;
+        }
+        self.last_request = Some(std::time::Instant::now());
+        Ok(())
+    }
+
+    fn store_cache(&self, key: &str, output: &str) -> Result<()> {
+        self.cache.execute(
+            "INSERT OR REPLACE INTO translations(key,value) VALUES (?1,?2)",
+            params![key, output],
+        )?;
+        self.cache.execute("DELETE FROM translations WHERE key IN (SELECT key FROM translations ORDER BY accessed DESC LIMIT -1 OFFSET 50000)",[])?;
+        Ok(())
+    }
+
     pub async fn translate(&mut self, original: &str) -> Result<String> {
         if original.trim().is_empty() || !original.chars().any(char::is_alphabetic) {
             return Ok(original.to_owned());
@@ -195,25 +296,11 @@ impl Translator {
             !self.cache_only,
             "translation is not cached; cache-only recovery makes no network requests"
         );
-        let mut text = original.to_owned();
-        let mut terms = self.settings.glossary.iter().collect::<Vec<_>>();
-        terms.sort_by_key(|(k, _)| std::cmp::Reverse(k.len()));
-        for (source, target) in terms {
-            if !source.is_empty() {
-                text = text.replace(source, target);
-            }
-        }
+        let text = self.apply_glossary(original);
         let mut output = None;
         for attempt in 0..3 {
-            let interval = Duration::try_from_secs_f64(1. / self.settings.requests_per_second)
-                .context("configured request interval is too large")?;
-            if let Some(last) = self.last_request
-                && let Some(wait) = interval.checked_sub(last.elapsed())
-            {
-                tokio::time::sleep(wait).await;
-            }
-            self.last_request = Some(std::time::Instant::now());
-            match self.request(&text).await {
+            self.wait_for_slot().await?;
+            match self.request(&text, false).await {
                 Ok(v) => match crate::typeset::parse(&v, original.matches('⟦').count()) {
                     Ok(_) => {
                         output = Some(v);
@@ -232,19 +319,15 @@ impl Translator {
             output.chars().count() <= original.chars().count().saturating_mul(20).max(2000),
             "translation response is unexpectedly long"
         );
-        self.cache.execute(
-            "INSERT OR REPLACE INTO translations(key,value) VALUES (?1,?2)",
-            params![key, output],
-        )?;
-        self.cache.execute("DELETE FROM translations WHERE key IN (SELECT key FROM translations ORDER BY accessed DESC LIMIT -1 OFFSET 50000)",[])?;
+        self.store_cache(&key, &output)?;
         Ok(output)
     }
 
-    async fn request(&self, text: &str) -> Result<String> {
+    async fn request(&self, text: &str, batch: bool) -> Result<String> {
         if self.settings.provider == "bing" {
             return self.bing(text).await;
         }
-        self.request_one(text).await
+        self.request_one(text, batch).await
     }
 
     async fn bing(&self, text: &str) -> Result<String> {
@@ -325,8 +408,12 @@ impl Translator {
         Ok(output)
     }
 
-    async fn request_one(&self, text: &str) -> Result<String> {
+    async fn request_one(&self, text: &str, batch: bool) -> Result<String> {
         let s = &self.settings;
+        let batch_prompt = format!(
+            "Translate from {} to {}. The input is a JSON array of adjacent-page body paragraphs, which may be pieces of the same original paragraph. Read both for context. Return only a JSON array of objects with the same IDs and an output field. Keep each ID an independent fixed unit: do not merge, split, omit, duplicate, or move content between IDs. Preserve every ⟦number⟧ formula marker exactly once inside its own ID; the same number in different IDs refers to different formulas. Preserve all symbols and technical terminology. No explanations or markdown fences.",
+            s.source, s.target
+        );
         let response=match s.provider.as_str() {
             "google" => self.client.get("https://translate.googleapis.com/translate_a/single")
                 .query(&[("client","gtx"),("dt","t"),("sl",s.source.as_str()),("tl",s.target.as_str()),("q",text)]).send().await,
@@ -335,7 +422,7 @@ impl Translator {
                 let mut request=self.client.post(format!("{}/chat/completions",s.base_url.trim_end_matches('/')))
                     .header("x-opencode-session", &self.session)
                     .json(&json!({"model":s.model,"temperature":0,"messages":[
-                        {"role":"system","content":format!("Translate from {} to {}. Return only the translation, no explanations, no markdown fences. Preserve all symbols and technical terminology. Preserve every ⟦number⟧ marker exactly once, without changing its number.",s.source,s.target)},
+                        {"role":"system","content":if batch {batch_prompt.clone()} else {format!("Translate from {} to {}. Return only the translation, no explanations, no markdown fences. Preserve all symbols and technical terminology. Preserve every ⟦number⟧ marker exactly once, without changing its number.",s.source,s.target)}},
                         {"role":"user","content":text}]}));
                 if let Some(key)=s.api_key.as_deref().filter(|key|!key.is_empty()) { request=request.bearer_auth(key); }
                 request.send().await
@@ -344,7 +431,7 @@ impl Translator {
                 ensure!(!s.model.is_empty(),"Ollama model is required");
                 let url=if s.base_url.is_empty() { "http://127.0.0.1:11434" } else { &s.base_url };
                 self.client.post(format!("{}/api/chat",url.trim_end_matches('/'))).json(&json!({"model":s.model,"stream":false,
-                    "messages":[{"role":"system","content":format!("Translate from {} to {}. Output only translated text.",s.source,s.target)},
+                    "messages":[{"role":"system","content":if batch {batch_prompt.clone()} else {format!("Translate from {} to {}. Output only translated text.",s.source,s.target)}},
                     {"role":"user","content":text}]})).send().await
             },
             "deepl" => {
@@ -372,7 +459,7 @@ impl Translator {
                 ensure!(!s.base_url.is_empty() && !s.model.is_empty(),"Azure endpoint and deployment model are required");
                 self.client.post(format!("{}/openai/deployments/{}/chat/completions",s.base_url.trim_end_matches('/'),s.model))
                     .query(&[("api-version",s.options.get("api_version").map(String::as_str).unwrap_or("2024-10-21"))])
-                    .header("api-key",key).json(&json!({"messages":[{"role":"system","content":format!("Translate from {} to {}. Return only translation. Preserve every ⟦number⟧ marker exactly once.",s.source,s.target)},
+                    .header("api-key",key).json(&json!({"messages":[{"role":"system","content":if batch {batch_prompt.clone()} else {format!("Translate from {} to {}. Return only translation. Preserve every ⟦number⟧ marker exactly once.",s.source,s.target)}},
                     {"role":"user","content":text}]})).send().await
             },
             "dify"|"anythingllm"=>{
@@ -466,9 +553,258 @@ fn chunks(text: &str, max_chars: usize) -> Vec<&str> {
     chunks
 }
 
+fn parse_pair(output: &str, originals: [&str; 2]) -> Result<[String; 2]> {
+    #[derive(Deserialize)]
+    struct Item {
+        id: usize,
+        output: String,
+    }
+    let output = output.trim();
+    let output = output
+        .strip_prefix("```json")
+        .or_else(|| output.strip_prefix("```"))
+        .and_then(|s| s.trim().strip_suffix("```"))
+        .unwrap_or(output)
+        .trim();
+    let items: Vec<Item> =
+        serde_json::from_str(output).context("invalid cross-page translation JSON")?;
+    ensure!(
+        items.len() == 2,
+        "cross-page translation must return two IDs"
+    );
+    let mut translated: [Option<String>; 2] = [None, None];
+    for item in items {
+        ensure!(
+            item.id < 2 && translated[item.id].is_none(),
+            "cross-page translation has unknown or duplicate ID"
+        );
+        ensure!(
+            !item.output.trim().is_empty(),
+            "cross-page translation returned empty text"
+        );
+        ensure!(
+            item.output.chars().count()
+                <= originals[item.id]
+                    .chars()
+                    .count()
+                    .saturating_mul(20)
+                    .max(2000),
+            "cross-page translation is unexpectedly long"
+        );
+        crate::typeset::parse(&item.output, originals[item.id].matches('⟦').count())?;
+        translated[item.id] = Some(item.output);
+    }
+    let [first, second] = translated;
+    Ok([
+        first.context("missing cross-page ID 0")?,
+        second.context("missing cross-page ID 1")?,
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cross_page_ids_own_their_formula_markers() -> Result<()> {
+        let source = ["left ⟦0⟧", "right ⟦0⟧⟦1⟧"];
+        assert_eq!(
+            parse_pair(
+                "```json\n[{\"id\":1,\"output\":\"后⟦1⟧⟦0⟧\"},{\"id\":0,\"output\":\"前⟦0⟧\"}]\n```",
+                source
+            )?,
+            ["前⟦0⟧", "后⟦1⟧⟦0⟧"]
+        );
+        for invalid in [
+            r#"[{"id":0,"output":"前⟦0⟧"}]"#,
+            r#"[{"id":0,"output":"前⟦0⟧"},{"id":0,"output":"后⟦0⟧⟦1⟧"}]"#,
+            r#"[{"id":0,"output":"前⟦0⟧"},{"id":2,"output":"后⟦0⟧⟦1⟧"}]"#,
+            r#"[{"id":0,"output":""},{"id":1,"output":"后⟦0⟧⟦1⟧"}]"#,
+            r#"[{"id":0,"output":"前⟦0⟧⟦1⟧"},{"id":1,"output":"后⟦0⟧"}]"#,
+            r#"[{"id":0,"output":"前⟦0⟧⟦0⟧"},{"id":1,"output":"后⟦0⟧⟦1⟧"}]"#,
+        ] {
+            assert!(parse_pair(invalid, source).is_err(), "accepted {invalid}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cross_page_cache_includes_both_inputs_and_preserves_offline_recovery() -> Result<()> {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let app = axum::Router::new().route("/chat/completions", axum::routing::post(move |axum::Json(body):axum::Json<Value>| {
+            let n = count.fetch_add(1, Ordering::SeqCst) + 1;
+            async move {
+                let input = body["messages"][1]["content"].as_str().unwrap();
+                let output = if serde_json::from_str::<Vec<Value>>(input).is_ok() {
+                    assert!(body["messages"][0]["content"].as_str().unwrap().contains("inside its own ID"));
+                    serde_json::to_string(&json!([{"id":1,"output":"后页⟦0⟧"},{"id":0,"output":format!("前页{n}⟦0⟧")}])).unwrap()
+                } else { "孤立⟦0⟧".to_owned() };
+                axum::Json(json!({"choices":[{"message":{"content":output}}]}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let tmp = tempfile::tempdir()?;
+        let mut t = Translator::new(
+            TranslationSettings {
+                provider: "openai".into(),
+                base_url: url,
+                model: "batch-cache".into(),
+                api_key: Some("diagnostic".into()),
+                requests_per_second: 1000.,
+                ..Default::default()
+            },
+            &tmp.path().join("cache.db"),
+        )?;
+        assert_eq!(t.translate("first ⟦0⟧").await?, "孤立⟦0⟧");
+        let pair = ["first ⟦0⟧", "second ⟦0⟧"];
+        assert_eq!(t.translate_pair(pair).await?, ["前页2⟦0⟧", "后页⟦0⟧"]);
+        assert_eq!(t.translate_pair(pair).await?, ["前页2⟦0⟧", "后页⟦0⟧"]);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            t.translate_pair([pair[0], "different next paragraph ⟦0⟧"])
+                .await?[0],
+            "前页3⟦0⟧"
+        );
+        t.translate("old left ⟦0⟧").await?;
+        t.translate("old right ⟦0⟧").await?;
+        t.cache_only = true;
+        let before = calls.load(Ordering::SeqCst);
+        assert_eq!(t.translate_pair(pair).await?[0], "前页2⟦0⟧");
+        assert_eq!(
+            t.translate_pair(["old left ⟦0⟧", "old right ⟦0⟧"]).await?,
+            ["孤立⟦0⟧", "孤立⟦0⟧"]
+        );
+        assert!(
+            t.translate_pair([pair[0], "uncached right ⟦0⟧"])
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("cache-only")
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), before);
+        server.abort();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn malformed_batch_falls_back_but_permanent_provider_error_does_not() -> Result<()> {
+        use axum::response::IntoResponse;
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        };
+        let calls = Arc::new(AtomicUsize::new(0));
+        let failing = Arc::new(AtomicBool::new(false));
+        let count = calls.clone();
+        let fail = failing.clone();
+        let app = axum::Router::new().route(
+            "/chat/completions",
+            axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
+                count.fetch_add(1, Ordering::SeqCst);
+                let permanent = fail.load(Ordering::SeqCst);
+                async move {
+                    if permanent {
+                        return (
+                            axum::http::StatusCode::BAD_REQUEST,
+                            axum::Json(json!({"error":{"message":"bad model"}})),
+                        )
+                            .into_response();
+                    }
+                    let text = body["messages"][1]["content"].as_str().unwrap();
+                    let output = if serde_json::from_str::<Vec<Value>>(text).is_ok() {
+                        r#"[{"id":0,"output":"bad"},{"id":0,"output":"duplicate"}]"#
+                    } else {
+                        "独立译文"
+                    };
+                    axum::Json(json!({"choices":[{"message":{"content":output}}]})).into_response()
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let tmp = tempfile::tempdir()?;
+        let mut t = Translator::new(
+            TranslationSettings {
+                provider: "openai".into(),
+                base_url: url,
+                model: "fallback".into(),
+                api_key: Some("diagnostic".into()),
+                requests_per_second: 1000.,
+                ..Default::default()
+            },
+            &tmp.path().join("cache.db"),
+        )?;
+        assert_eq!(
+            t.translate_pair(["left paragraph", "right paragraph"])
+                .await?,
+            ["独立译文", "独立译文"]
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        failing.store(true, Ordering::SeqCst);
+        assert!(
+            t.translate_pair(["left paragraph", "right paragraph"])
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("HTTP 400")
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            4,
+            "permanent batch rejection must not cause two individual requests"
+        );
+        server.abort();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn all_enabled_llm_adapters_send_boundary_ids() -> Result<()> {
+        let app = axum::Router::new().fallback(axum::routing::post(|axum::Json(body):axum::Json<Value>| async move {
+            let inputs:Vec<Value>=serde_json::from_str(body["messages"][1]["content"].as_str().unwrap()).unwrap();
+            assert_eq!(inputs.len(),2);
+            let output=serde_json::to_string(&json!([{"id":0,"output":"前页"},{"id":1,"output":"后页"}])).unwrap();
+            axum::Json(json!({"choices":[{"message":{"content":output}}],"message":{"content":output}}))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let tmp = tempfile::tempdir()?;
+        for provider in ["openai", "azureopenai", "ollama"] {
+            let mut t = Translator::new(
+                TranslationSettings {
+                    provider: provider.into(),
+                    base_url: url.clone(),
+                    model: "adapter".into(),
+                    api_key: Some("diagnostic".into()),
+                    ..Default::default()
+                },
+                &tmp.path().join(format!("{provider}.db")),
+            )?;
+            assert!(t.supports_cross_page());
+            assert_eq!(
+                t.translate_pair(["left paragraph", "right paragraph"])
+                    .await?,
+                ["前页", "后页"]
+            );
+        }
+        server.abort();
+        Ok(())
+    }
+
     #[tokio::test]
     async fn cache_only_recovery_makes_no_new_provider_requests() -> Result<()> {
         use std::sync::{

@@ -57,6 +57,18 @@ Provider URL conventions:
 
 Provider adapters beyond live Google and the local OpenAI contract fixture remain unverified against real credentials. They are not marked production-ready.
 
+## Cross-page body context (2026-10-29)
+
+With `layout:true`, OpenAI-compatible profiles (including the OpenCode profile), Azure OpenAI and Ollama batch the last eligible body paragraph of one selected page with the first eligible body paragraph of its physically adjacent selected page. The model receives a JSON array with independent IDs 0 and 1, plus instructions to use both paragraphs for context without moving content between them. The worker validates the two IDs and each paragraph's own formula-marker namespace, then writes each translation back to its original page and coordinates. Response order does not determine page ownership.
+
+The layout model supplies body labels; titles, detected tables/figures/formulas, abandoned regions and standalone monospaced code are not body candidates. Unselected intervening pages are never bridged. Disabling layout analysis disables boundary batching. This adds bounded next-page lookahead while retaining the early provider check and an analyzer process that exits before HTTP waits. The next page's translated first paragraph is consumed once, not requested again.
+
+Joint cache keys include both ordered original paragraphs and the translation settings, including glossary and model. Old context-free cache entries are not used as successful contextual results. Invalid JSON, duplicate/missing IDs, empty/oversized text or invalid formula markers trigger the existing individual translation fallback; permanent provider HTTP errors fail normally without issuing two extra individual requests. Rate limits and transient retry behavior apply to joint requests as well.
+
+`PDF2ZH_CACHE_ONLY` can reuse joint entries without networking. If no joint entry exists, legacy individual entries remain usable for offline recovery; they do not gain new cross-page context. Missing entries still fail without networking. Existing output PDFs are not rewritten automatically. The public job/settings API and file-format identifiers are unchanged.
+
+This implements adjacent-page joint input, not full multi-page reflow or a guarantee of translation quality. A paragraph spanning three or more pages, cross-column reconstruction and real-provider quality require further evaluation. Local HTTP contract tests do not imply live validation of every paid provider.
+
 
 ## Provider failures and phase progress
 

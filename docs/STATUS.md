@@ -107,3 +107,11 @@
 - 验证：Actions 40823997709 的 Linux 测试、前端生产构建和最终容器冒烟检查全部通过；发布 digest `sha256:fb81c7f59c3f15a2791163e4cccf53e8f77717e712d2e1c9b34521888350d934`。NAS 空闲升级后 healthy，11 条任务记录、全部输入 SHA256 和原数据卷保持；线上设置默认已改为 `["mono"]`，`opencode-go` 服务与密钥标记保留，20 个服务入口正常。
 - 没做完 / 已知问题：历史任务仍按任务原始 `output_formats` 恢复布局，可能继续显示 Dual；只有新建任务默认 Mono。线上设置改动前的文件已备份在容器 `/data/ui-settings.json.before-mono-default`。
 - 下一个接手的人先看：verification.md 本次部署记录；不要把历史任务恢复的布局误当成新的全局默认。
+
+## 2026-10-29 Codex（跨页 LLM 联合输入，本地修复完成）
+
+- 做了什么：按用户“那就修复吧”，为 OpenAI-compatible（含 OpenCode 配置）、Azure OpenAI、Ollama 增加相邻且选中页面的边界正文同批输入；按独立 ID/原页回填、公式命名空间逐段验证，下一页首段只消费一次。保留标题/表格/代码保护、原分页、旋转和非 LLM 路径；新增上下文缓存与安全回退。
+- 改了哪些文件：src/{engine,translate}.rs、tests/cross_page.rs、README.md、docs/{api,DECISIONS,cross-page-plan,progress,verification,STATUS}.md。没有修改原 translator 业务源码、extend 归档、模型或 Cargo 依赖。
+- 验证：旧版新回归明确失败（0 次联合请求，预期 1）；最终 29 项 release 测试、cargo fmt --check、git diff --check 和 release build 通过。两份原 A/B PDF 用新程序各得到一个跨页批次，译文仍在各自原页，缓存重跑均零请求；真实论文表格区域像素与原稿一致，已检查两页渲染。所有服务为本地记录接口，未用用户 Key。
+- 没做完 / 已知问题：仅本地修复与构建，尚未发布镜像/部署 NAS，旧完成 PDF 不自动更新；未验证真实付费模型译质。需要 layout 开启且走支持的 LLM 路径，结构化输出不兼容时会逐段回退；三页以上整段重建、跨栏语义和上游全面兼容仍不在本次范围。
+- 下一个接手的人先看：cross-page-plan.md、api.md 的 Cross-page body context 与 verification.md 本次记录；外部复验在 Downloads/cross_page_fix-2026-10-29。若下一步部署，先云端构建与验证，再核对 NAS 无活动任务及数据/镜像身份，保留原卷和旧任务产物。

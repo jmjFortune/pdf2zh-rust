@@ -7,7 +7,7 @@ use crate::{
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
@@ -100,6 +100,8 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
     let mut layouts = std::collections::BTreeMap::new();
     let first_selected = *selected.first().context("no pages selected")?;
     let mut remainder_analyzed = false;
+    let mut prepared: BTreeMap<usize, Vec<Unit>> = BTreeMap::new();
+    let mut pending: BTreeMap<(usize, usize), String> = BTreeMap::new();
     let mut completed = 0usize;
     for index in 0..total {
         if !selected.contains(&index) {
@@ -110,23 +112,30 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
         // minutes analyzing the rest. Native models still exit before HTTP waits.
         if config.layout && (index == first_selected || !remainder_analyzed) {
             let mut analysis = config.clone();
-            analysis.pages = if index == first_selected {
-                (index + 1).to_string()
+            let analysis_pages = if index == first_selected {
+                vec![index]
             } else {
                 remainder_analyzed = true;
                 selected
                     .range(index..)
+                    .filter(|p| !layouts.contains_key(*p))
+                    .copied()
+                    .collect::<Vec<_>>()
+            };
+            if !analysis_pages.is_empty() {
+                analysis.pages = analysis_pages
+                    .iter()
                     .map(|p| (p + 1).to_string())
                     .collect::<Vec<_>>()
-                    .join(",")
-            };
-            layouts.extend(
-                crate::analysis::run_process(&analysis, &mut |mut event| {
-                    event.completed_blocks = completed;
-                    emit(event);
-                })
-                .await?,
-            );
+                    .join(",");
+                layouts.extend(
+                    crate::analysis::run_process(&analysis, &mut |mut event| {
+                        event.completed_blocks = completed;
+                        emit(event);
+                    })
+                    .await?,
+                );
+            }
         }
         emit(Progress {
             stage: "extract".into(),
@@ -152,8 +161,11 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
                 index + 1
             );
         }
-        let units = translation_units(&info, regions);
-        for unit in units {
+        let units = prepared
+            .remove(&index)
+            .unwrap_or_else(|| translation_units(&info, regions));
+        let last_body = units.iter().rposition(|unit| unit.body);
+        for (unit_index, unit) in units.into_iter().enumerate() {
             check_cancel(&config.data_dir)?;
             emit(Progress {
                 stage: "translate".into(),
@@ -162,7 +174,54 @@ pub async fn run(config: &JobConfig, mut emit: impl FnMut(Progress)) -> Result<(
                 completed_blocks: completed,
                 message: String::new(),
             });
-            let translated = translator.translate(&unit.text).await.with_context(|| {
+            let translated = async {
+                if let Some(text) = pending.remove(&(index, unit_index)) {
+                    return Ok(text);
+                }
+                if last_body == Some(unit_index)
+                    && translator.supports_cross_page()
+                    && selected.contains(&(index + 1))
+                {
+                    check_cancel(&config.data_dir)?;
+                    // Look ahead only when a boundary is reached, so the first
+                    // ordinary paragraph still exercises the provider promptly.
+                    if !layouts.contains_key(&(index + 1)) {
+                        let mut analysis = config.clone();
+                        analysis.pages = (index + 2).to_string();
+                        layouts.extend(
+                            crate::analysis::run_process(&analysis, &mut |mut event| {
+                                event.completed_blocks = completed;
+                                emit(event);
+                            })
+                            .await?,
+                        );
+                    }
+                    if !prepared.contains_key(&(index + 1)) {
+                        let next_units =
+                            prepare_units(&mut doc, index + 1, &layouts[&(index + 1)])?;
+                        prepared.insert(index + 1, next_units);
+                    }
+                    let next_units = &prepared[&(index + 1)];
+                    check_cancel(&config.data_dir)?;
+                    emit(Progress {
+                        stage: "translate".into(),
+                        page: index + 1,
+                        total,
+                        completed_blocks: completed,
+                        message: String::new(),
+                    });
+                    if let Some(next_index) = next_units.iter().position(|unit| unit.body) {
+                        let [current, following] = translator
+                            .translate_pair([&unit.text, &next_units[next_index].text])
+                            .await?;
+                        pending.insert((index + 1, next_index), following);
+                        return Ok(current);
+                    }
+                }
+                translator.translate(&unit.text).await
+            }
+            .await
+            .with_context(|| {
                 format!(
                     "page {}/{}, completed {} blocks",
                     index + 1,
@@ -347,6 +406,25 @@ fn check_cancel(data: &Path) -> Result<()> {
     Ok(())
 }
 
+fn prepare_units(
+    doc: &mut mupdf::pdf::PdfDocument,
+    index: usize,
+    regions: &[LayoutRegion],
+) -> Result<Vec<Unit>> {
+    let mut page = doc.load_pdf_page(index.try_into()?)?;
+    let rotation = page.rotation()?;
+    if rotation != 0 {
+        page.set_rotation(0)?;
+    }
+    let info = pdf::page_text(doc, index);
+    // Next-page ownership is computed in the same unrotated coordinates used
+    // during writeback, but the original page rotation must survive lookahead.
+    if rotation != 0 {
+        page.set_rotation(rotation)?;
+    }
+    Ok(translation_units(&info?, regions))
+}
+
 // Probe a Shape without committing it. Its overflow operation is atomic. This
 // separates layout validation from deletion of original glyphs.
 fn fit_translation(
@@ -390,6 +468,7 @@ struct Unit {
     size: f32,
     color: u32,
     math: Vec<MathFragment>,
+    body: bool,
 }
 
 fn protected(g: &Glyph, regions: &[LayoutRegion]) -> bool {
@@ -487,6 +566,16 @@ fn translation_units(page: &PageText, regions: &[LayoutRegion]) -> Vec<Unit> {
                 glyphs,
                 size,
                 math,
+                body: regions
+                    .iter()
+                    .filter(|r| r.bounds.contains_center(block.bounds))
+                    .min_by(|a, b| {
+                        (a.bounds.width() * a.bounds.height())
+                            .total_cmp(&(b.bounds.width() * b.bounds.height()))
+                    })
+                    .is_some_and(|r| {
+                        ["plain text", "text", "paragraph_hybrid"].contains(&r.label.as_str())
+                    }),
             });
         }
     }
