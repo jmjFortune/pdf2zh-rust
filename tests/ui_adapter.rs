@@ -138,6 +138,13 @@ async fn translator_contract_persists_secrets_privately_and_exports_once() -> Re
             .status(),
         404
     );
+    let fresh: Value = c
+        .get(format!("{base}/api/ui/settings"))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(fresh["defaults"]["output_formats"], json!(["mono"]));
     let secret = "test-secret-private-settings-only";
     let patch = json!({"services":[{"id":"openai","base_url":mock_url,"model":"ui-contract","api_key":secret}],"defaults":{"service":"openai","output_formats":["mono","dual","side_by_side"]}});
     let response = c

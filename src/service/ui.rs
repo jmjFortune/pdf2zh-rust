@@ -18,7 +18,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             services: BTreeMap::new(),
-            defaults: json!({"lang_in":"en","lang_out":"zh-CN","service":"google","thread":1,"output_formats":["side_by_side"]}),
+            defaults: json!({"lang_in":"en","lang_out":"zh-CN","service":"google","thread":1,"output_formats":["mono"]}),
             terms: BTreeMap::new(),
             hidden: BTreeSet::new(),
         }

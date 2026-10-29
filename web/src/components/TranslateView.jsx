@@ -18,7 +18,7 @@ export default function TranslateView({ settings, settingsError, onRetry, onOpen
   const [engine, setEngine] = useState("google");
   const [pageRange, setPageRange] = useState("all");
   const [customRange, setCustomRange] = useState("1-3");
-  const [layoutModes, setLayoutModes] = useState(["side_by_side"]);
+  const [layoutModes, setLayoutModes] = useState(["mono"]);
   const [job, setJob] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [restoring, setRestoring] = useState(true);
