@@ -131,3 +131,11 @@
 - 验证：新增 8 项回归；当前工作区 39 项、剔除预存 thinking 的独立候选 37 项 release 测试全部通过，格式/diff 检查通过。真实 PDF 失败区域像素一致，带公式溢出、跨页失败隔离、鉴权、取消、全部失败、缓存以及告警重启持久化/SSE 均有覆盖。
 - 没做完 / 已知问题：普通 ASCII 行尾连字符无法可靠区分词内连字符与排版断词，采取保留策略；本次不改字体样式、禁则、行距或并发。表格与 extend 保持。thinking_control 原始 170 插入/7 删除继续未提交，GAP 文档未改；未推送 GitHub 或部署 NAS。
 - 下一个接手的人先看：paragraph-reliability/task_plan.md、api.md 的 Paragraph retention warnings 和 verification.md 本次记录；若后续发布，先区分已验证的独立提交和他人未提交改动。
+
+## 2026-10-29 Codex（段落可靠性修复已推送并部署 NAS）
+
+- 做了什么：按追加授权推送源码 ca8e414；Actions 40889155664 成功后，NAS 拉取固定 digest，完成隔离验收、空闲备份、升级和最终只读核对。当前运行 ca8e414111cb7e7c0e56d619bb0290b092d4d17b，healthy。
+- 改了哪些文件：本次仅补 docs/DECISIONS、paragraph-reliability/{task_plan,progress}、verification 和本交接；部署/验收脚本与报告在忽略的 artifacts，配置及 SQLite 备份仅在 NAS 私有目录。固定镜像为 a0dec2b1e2f43dd29d03c94ce0ef4001cf8aec67bc0fa5890f28825b75cfc54b。
+- 验证：云端 37 项 Linux 测试、前端构建和最终容器检查通过。NAS 同镜像隔离检查通过连字符、原段/像素保留、告警、缓存、全部失败/401/取消拒绝，以及跨页 1 次联合请求/原页回填/缓存零请求。最终保留原卷、11 条任务、22 个 PDF 哈希和私有设置；20 服务、OpenCode/Mono 默认保持，其他容器未重启，无活动任务。
+- 没做完 / 已知问题：未用付费账户测真实译质，旧文档未重译；普通 ASCII 断词仍保守保留。表格、extend、原 Python 容器、代理及未提交 thinking 修改保持；Mac 未构建或拉 Docker 镜像。
+- 下一个接手的人先看：verification.md 的 Paragraph reliability GitHub and NAS rollout；artifacts/reliability-nas-final.json、reliability-nas-smoke-result.json、reliability-nas-cross-page-smoke-result.json 与 nas-deployment-record.json。文档提交不改变当前运行的源码 revision。
