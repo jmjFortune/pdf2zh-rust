@@ -100,3 +100,10 @@
 - 验证：10 条任务逐字段保持、全部输入 SHA256 不变、原命名数据卷保留、私有设置文件哈希不变。线上 PDF.js worker/WASM 与本机构建 SHA256 相同；含方向键阅读器的线上模块与部署镜像文件 SHA256 相同，MIME 正确。23 项本机/云端测试通过。
 - 没做完 / 已知问题：旧完成的 47 页产物没有被替换；需重新生成才能应用排版修正。此次只用本地 mock 复验几何，没有自动调用付费翻译服务。新阅读器在本机实际显示和四方向键已验证；部署后的浏览器工具已不可用，线上资源一致性由 HTTP 哈希验证，未声称再次目视操作 NAS 页面。
 - 下一个接手的人先看：inline-reader-plan.md、verification.md 与 private artifacts/nas-deployment-record.json。临时测试服务已结束；沿用既有代理的临时 SSH CONNECT，不修改任何网络配置。
+
+## 2026-10-29 Codex（默认布局改为 Mono 并部署）
+- 做了什么：按用户要求把新建翻译的默认布局从 Dual 改为 Mono；前端初始选中态和后端 `Preferences` 默认值同步修改，并加回归断言。
+- 改了哪些文件：`src/service/ui.rs`、`web/src/components/TranslateView.jsx`、`tests/ui_adapter.rs`；源码提交 `99ed5a9368843e2576bda343023b03a0c00cc2ff`。部署验收只更新本文档与 verification、progress。
+- 验证：Actions 40823997709 的 Linux 测试、前端生产构建和最终容器冒烟检查全部通过；发布 digest `sha256:fb81c7f59c3f15a2791163e4cccf53e8f77717e712d2e1c9b34521888350d934`。NAS 空闲升级后 healthy，11 条任务记录、全部输入 SHA256 和原数据卷保持；线上设置默认已改为 `["mono"]`，`opencode-go` 服务与密钥标记保留，20 个服务入口正常。
+- 没做完 / 已知问题：历史任务仍按任务原始 `output_formats` 恢复布局，可能继续显示 Dual；只有新建任务默认 Mono。线上设置改动前的文件已备份在容器 `/data/ui-settings.json.before-mono-default`。
+- 下一个接手的人先看：verification.md 本次部署记录；不要把历史任务恢复的布局误当成新的全局默认。
