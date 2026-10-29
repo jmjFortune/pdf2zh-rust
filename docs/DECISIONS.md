@@ -5,3 +5,7 @@
 用户批准修复已复现的 Rust/Python LLM 请求差异。沿用 BabelDOC 的相邻页正文联合输入及独立 ID 回填思路，在 Rust 的 engine/translate 中实现；允许 src 与 tests 的相关变更，配套更新 API、验证、计划与 STATUS。保留已有页内排版、MuPDF/ONNX 原生依赖、非 LLM 服务、表格与代码保护，不增加 Python 运行依赖。
 
 仅做单段缓存会使后一页首段继续缺邻页原文，因此缓存须区分完整输入对；批量格式不兼容时保留逐段回退。发布部署与重译既有文档不在此次指令范围内。
+
+## 2026-10-29 — 用户后续授权 GitHub 与 NAS 发布
+
+用户随后明确要求“推送 github 和 nas”，覆盖上一条中发布部署不在范围的限制。推送 agent 分支，由现有 GitHub Actions 在 Linux 构建/测试并发布；只在 NAS 无活动任务时切换独立 Rust 服务到已验证的固定镜像 digest，保留原卷、全部历史输入/输出和私有设置。验收使用独立数据目录与 loopback mock，不自动调用用户账户或重译旧文档。原 Python 容器和网络/代理配置保持。

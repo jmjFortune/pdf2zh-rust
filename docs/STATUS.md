@@ -115,3 +115,11 @@
 - 验证：旧版新回归明确失败（0 次联合请求，预期 1）；最终 29 项 release 测试、cargo fmt --check、git diff --check 和 release build 通过。两份原 A/B PDF 用新程序各得到一个跨页批次，译文仍在各自原页，缓存重跑均零请求；真实论文表格区域像素与原稿一致，已检查两页渲染。所有服务为本地记录接口，未用用户 Key。
 - 没做完 / 已知问题：仅本地修复与构建，尚未发布镜像/部署 NAS，旧完成 PDF 不自动更新；未验证真实付费模型译质。需要 layout 开启且走支持的 LLM 路径，结构化输出不兼容时会逐段回退；三页以上整段重建、跨栏语义和上游全面兼容仍不在本次范围。
 - 下一个接手的人先看：cross-page-plan.md、api.md 的 Cross-page body context 与 verification.md 本次记录；外部复验在 Downloads/cross_page_fix-2026-10-29。若下一步部署，先云端构建与验证，再核对 NAS 无活动任务及数据/镜像身份，保留原卷和旧任务产物。
+
+## 2026-10-29 Codex（跨页修复已推送 GitHub 并部署 NAS）
+
+- 做了什么：按用户追加授权推送源码 0a54cb1，Actions 40842257239 全部通过并发布镜像；NAS 在无活动任务时完成备份、固定 digest 升级与前后验收，运行源码标签 0a54cb1010ab280dfe656350ce8af4af2d63c77d，healthy。
+- 改了哪些文件：本次仅补 DECISIONS、cross-page-plan、verification、progress 和本交接；私有部署/验收脚本与报告位于忽略的 artifacts，不提交 .env、设置或凭证。运行镜像 digest 为 de36697b13e9d1e5a96d27e9440efaf025704e6c23fb0d4ab503f279896d1d8c。
+- 验证：云端 29 项 Linux 测试、前端构建和最终镜像冒烟通过。NAS 保持原数据卷、11 条原任务和 22 个 PDF 哈希，设置文件字节不变，其他容器未重启；Mono/OpenCode/20 服务保留。相同新镜像的独立两页 loopback mock 验收确认 1 次联合请求、无独立回退、译文原页归属、缓存重跑零请求，两页渲染已查看。测试后再次核对生产状态一致。
+- 没做完 / 已知问题：未自动重译旧 PDF，未调用用户付费接口验证真实模型译质；这不影响已确认的部署身份与请求机制。原 Python 容器、代理和 Docker daemon 配置保持，Mac 未构建或拉 Docker 镜像。
+- 下一个接手的人先看：verification.md 的 GitHub and NAS cross-page rollout，以及 artifacts/cross-page-nas-final.json、cross-page-nas-smoke-result.json 与 nas-deployment-record.json；后续新任务使用修复，历史 PDF 保持原样。
